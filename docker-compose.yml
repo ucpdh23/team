@@ -1,0 +1,110 @@
+services:
+  # Los 5 agentes son pares: no hay ningún rol de red especial ("hub" fijo). pi-link solo
+  # sabe hablar con 127.0.0.1:9900, así que cada contenedor lleva un broker
+  # (docker/pi-link-broker.sh) que compite por un flock sobre un fichero en el volumen
+  # compartido "pi-link-coord" para decidir quién de los 5 bindea el 127.0.0.1:9900 real
+  # (el hub) mientras el resto mantiene un relay TCP local apuntando a él. Si el
+  # contenedor-hub cae, el lock se libera solo y el resto vuelve a competir por el rol —
+  # el resto de agentes se reconectan siguiendo la lógica de reconexión propia de pi-link,
+  # sin intervención externa. Cada contenedor conserva su propia IP y sus propios puertos.
+  #
+  # Cada agente corre dentro de una sesión tmux persistente. Para conectarte y hablar con él:
+  #   docker exec -it <container_name> tmux attach -t pi
+  # Para desconectarte sin matar la sesión: Ctrl-b d
+  manager:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.pi
+    image: team-pi-manager
+    container_name: pi-manager
+    environment:
+      - ANTHROPIC_API_KEY
+      - PI_PACKAGES=
+      - PI_LINK_SELF=manager
+    command: ["--link-name", "manager"]
+    volumes:
+      - pi-link-coord:/var/run/pi-link
+      - ./workspace/manager:/workspace
+      - ./agents/manager/AGENTS.md:/workspace/AGENTS.md
+      - ./agents/manager/extensions:/workspace/.pi/extensions
+      - manager-pi-home:/root/.pi/agent
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.pi
+    image: team-pi-backend
+    container_name: pi-backend
+    environment:
+      - ANTHROPIC_API_KEY
+      - PI_PACKAGES=
+      - PI_LINK_SELF=backend
+    command: ["--link-name", "backend"]
+    volumes:
+      - pi-link-coord:/var/run/pi-link
+      - ./workspace/backend:/workspace
+      - ./agents/backend/AGENTS.md:/workspace/AGENTS.md
+      - ./agents/backend/extensions:/workspace/.pi/extensions
+      - backend-pi-home:/root/.pi/agent
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.pi
+    image: team-pi-frontend
+    container_name: pi-frontend
+    environment:
+      - ANTHROPIC_API_KEY
+      - PI_PACKAGES=
+      - PI_LINK_SELF=frontend
+    command: ["--link-name", "frontend"]
+    volumes:
+      - pi-link-coord:/var/run/pi-link
+      - ./workspace/frontend:/workspace
+      - ./agents/frontend/AGENTS.md:/workspace/AGENTS.md
+      - ./agents/frontend/extensions:/workspace/.pi/extensions
+      - frontend-pi-home:/root/.pi/agent
+
+  devops:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.pi
+    image: team-pi-devops
+    container_name: pi-devops
+    environment:
+      - ANTHROPIC_API_KEY
+      - PI_PACKAGES=
+      - PI_LINK_SELF=devops
+    command: ["--link-name", "devops"]
+    volumes:
+      - pi-link-coord:/var/run/pi-link
+      - ./workspace/devops:/workspace
+      - ./agents/devops/AGENTS.md:/workspace/AGENTS.md
+      - ./agents/devops/extensions:/workspace/.pi/extensions
+      - devops-pi-home:/root/.pi/agent
+
+  cypress:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.cypress
+    image: team-pi-cypress
+    container_name: pi-cypress
+    environment:
+      - ANTHROPIC_API_KEY
+      - PI_PACKAGES=
+      - PI_LINK_SELF=cypress
+    command: ["--link-name", "cypress"]
+    volumes:
+      - pi-link-coord:/var/run/pi-link
+      - ./workspace/cypress:/workspace
+      - ./agents/cypress/AGENTS.md:/workspace/AGENTS.md
+      - ./agents/cypress/extensions:/workspace/.pi/extensions
+      - cypress-pi-home:/root/.pi/agent
+
+volumes:
+  pi-link-coord:
+  manager-pi-home:
+  backend-pi-home:
+  frontend-pi-home:
+  devops-pi-home:
+  cypress-pi-home:

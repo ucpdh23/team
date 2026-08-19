@@ -1,0 +1,29 @@
+FROM node:24-bookworm-slim
+
+# Sin esto, los bytes multibyte UTF-8 (tildes, ¡¿, ñ) llegan mal a tmux/pi porque la imagen
+# slim viene en locale C/POSIX por defecto. C.UTF-8 ya viene con glibc, no requiere generar
+# locales.
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep curl tmux socat util-linux ncurses-term \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY docker/generate-tmux-conf.sh /usr/local/bin/generate-tmux-conf.sh
+RUN chmod +x /usr/local/bin/generate-tmux-conf.sh && /usr/local/bin/generate-tmux-conf.sh
+
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+WORKDIR /workspace
+
+# TODO: cuando se decida la tecnología de cada rol (backend Java/Python, frontend Angular,
+# devops terraform/kubectl, extensión pi de Eclipse headless para Java, etc.) este Dockerfile
+# se dividirá en uno por rol añadiendo aquí el toolchain específico.
+
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY docker/pi-link-broker.sh /usr/local/bin/pi-link-broker.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/pi-link-broker.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["--link"]

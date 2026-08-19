@@ -1,0 +1,26 @@
+# TODO: fija la version de cypress/included que useis realmente (esta es un placeholder).
+FROM cypress/included:latest
+
+# Sin esto, los bytes multibyte UTF-8 (tildes, ¡¿, ñ) llegan mal a tmux/pi porque la imagen
+# base puede venir en locale C/POSIX por defecto. C.UTF-8 ya viene con glibc, no requiere
+# generar locales.
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates git ripgrep curl tmux socat util-linux ncurses-term \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY docker/generate-tmux-conf.sh /usr/local/bin/generate-tmux-conf.sh
+RUN chmod +x /usr/local/bin/generate-tmux-conf.sh && /usr/local/bin/generate-tmux-conf.sh
+
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+WORKDIR /workspace
+
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY docker/pi-link-broker.sh /usr/local/bin/pi-link-broker.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/pi-link-broker.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["--link"]

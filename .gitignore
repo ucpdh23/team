@@ -1,0 +1,7 @@
+# Secretos / configuración local — nunca subir
+.env
+
+# Estado local de Claude Code
+.claude/settings.local.json
+
+# Código de cada rol montado en workspace/<rol> (placeholder hasta decidir el stack de cada uno)
