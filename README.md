@@ -139,7 +139,7 @@ to `.env.bak` first). You can also skip it and copy/edit `.env.example` by hand.
 | `<ROLE>_REPO_URL` | Git remote (origin) URL for that role's real repository — SSH or HTTPS. Exposed inside each container as `REPO_URL`. Empty until each role's repo/stack is decided. |
 | `<ROLE>_GIT_TOKEN` | Access token (PAT) for that role's `REPO_URL` when it's `https://` — scope it to just that one repo (GitHub fine-grained PAT, or an Azure DevOps PAT limited to `Code: Read & Write`). Exposed inside each container as `GIT_TOKEN`; `entrypoint.sh` wires it into a git credential helper that reads it from the environment at auth time, so it's never written to the remote URL or `.git/config`. Leave it empty and use an SSH `REPO_URL` instead if you'd rather set up SSH manually for a given role — the two don't conflict. |
 | `ADO_ORGANIZATION_URL`, `ADO_PROJECT` | Shared Azure DevOps organization/project (see `docs/work-procedures.md`). Exposed as-is inside every container, ready for `az devops configure --defaults organization=$ADO_ORGANIZATION_URL project=$ADO_PROJECT`. |
-| `BACKEND_VNC_PASSWORD`, `BACKEND_VNC_PORT` | VNC/noVNC access to the `backend` container's headless Eclipse (see [Eclipse GUI access](#eclipse-gui-access-backend-via-novnc) below). Empty password = VNC disabled (default). Port defaults to `6080`, published on `127.0.0.1` only. |
+| `BACKEND_VNC_PASSWORD`, `BACKEND_VNC_PORT`, `BACKEND_VNC_BIND` | VNC/noVNC access to the `backend` container's headless Eclipse (see [Eclipse GUI access](#eclipse-gui-access-backend-via-novnc) below). Empty password = VNC disabled (default). Port defaults to `6080`; bind defaults to `127.0.0.1` (set to `0.0.0.0` if running Docker inside WSL2). |
 
 To rebuild after changing any Dockerfile/script and pick up the changes without losing
 existing sessions or logins:
@@ -213,8 +213,21 @@ display Eclipse already runs on is exposed over VNC:
 2. `python setup.py --start` (or restart just `backend` after editing `.env`).
 3. Open `http://127.0.0.1:${BACKEND_VNC_PORT:-6080}/vnc.html` in a browser (no VNC client
    needed) and enter the password. The port is only published on the host's loopback
-   interface — if `docker compose` runs on a remote machine, reach it through an SSH tunnel
-   (same pattern as [Remote VS Code](#remote-vs-code) above), not by exposing it directly.
+   interface (`BACKEND_VNC_BIND`, default `127.0.0.1`) — if `docker compose` runs on a remote
+   machine, reach it through an SSH tunnel (same pattern as [Remote VS
+   Code](#remote-vs-code) above), not by changing this to a wider bind address.
+
+**Running Docker inside WSL2** (not Docker Desktop's own VM, `dockerd` running directly
+inside a WSL2 distro): `127.0.0.1` published there is often unreachable from Windows'
+browser, because WSL2's automatic "localhost forwarding" into Windows arrives through the
+distro's virtual network interface, not through loopback — and Docker's loopback-only
+publish only accepts connections arriving on loopback itself. Fix: set `BACKEND_VNC_BIND=
+0.0.0.0` in `.env` and restart `backend`; WSL2's forwarding does reach `0.0.0.0`-bound ports,
+so `http://localhost:6080/vnc.html` from Windows then works with no other setup. This is
+safe in the WSL2 case specifically because the distro's network is already NAT'd behind
+Windows (nothing on your LAN can reach it) unless you've turned on WSL's "mirrored"
+networking mode — and the VNC connection itself still requires `BACKEND_VNC_PASSWORD`
+either way.
 
 Once a project is imported this way, `jdt`/`jdtbridge` picks it up immediately — the import
 step and the CLI share the same running Eclipse instance and workspace
