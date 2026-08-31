@@ -10,6 +10,16 @@ for pkg in $PACKAGES; do
   pi install "$pkg"
 done
 
+# Credencial de git para clonar/hacer push del repo real de este rol (REPO_URL) sobre HTTPS,
+# sin dejar el token escrito en .git/config ni en el historial de shell: el helper lo lee de
+# la variable de entorno GIT_TOKEN en el momento de cada petición de autenticación. Solo
+# entra en juego con remotos https:// — si para algún rol prefieres configurar SSH a mano
+# (deploy key, agent forwarding...), usa un REPO_URL git@... normal y este helper no interfiere.
+if [ -n "${GIT_TOKEN:-}" ]; then
+  echo "[entrypoint] configurando credential.helper de git (GIT_TOKEN presente)"
+  git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=$GIT_TOKEN"; }; f'
+fi
+
 # pi corre dentro de una sesión tmux persistente en vez de como proceso en primer plano:
 # así la sesión sigue viva aunque nadie esté conectado, y te enganchas cuando quieras con
 #   docker exec -it <contenedor> tmux attach -t pi

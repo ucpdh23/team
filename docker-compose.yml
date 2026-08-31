@@ -22,6 +22,7 @@ services:
       - PI_PACKAGES=
       - PI_LINK_SELF=manager
       - REPO_URL=${MANAGER_REPO_URL:-}
+      - GIT_TOKEN=${MANAGER_GIT_TOKEN:-}
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
     command: ["--link-name", "manager"]
@@ -44,6 +45,7 @@ services:
       - PI_PACKAGES=
       - PI_LINK_SELF=backend
       - REPO_URL=${BACKEND_REPO_URL:-}
+      - GIT_TOKEN=${BACKEND_GIT_TOKEN:-}
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
     command: ["--link-name", "backend"]
@@ -67,6 +69,7 @@ services:
       - PI_PACKAGES=
       - PI_LINK_SELF=frontend
       - REPO_URL=${FRONTEND_REPO_URL:-}
+      - GIT_TOKEN=${FRONTEND_GIT_TOKEN:-}
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
     command: ["--link-name", "frontend"]
@@ -89,6 +92,7 @@ services:
       - PI_PACKAGES=
       - PI_LINK_SELF=devops
       - REPO_URL=${DEVOPS_REPO_URL:-}
+      - GIT_TOKEN=${DEVOPS_GIT_TOKEN:-}
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
     command: ["--link-name", "devops"]
@@ -111,6 +115,7 @@ services:
       - PI_PACKAGES=
       - PI_LINK_SELF=cypress
       - REPO_URL=${CYPRESS_REPO_URL:-}
+      - GIT_TOKEN=${CYPRESS_GIT_TOKEN:-}
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
     command: ["--link-name", "cypress"]
