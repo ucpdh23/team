@@ -74,6 +74,35 @@ Si tienes dudas sobre el procedimiento general, sobre en qué etapa está el tra
 sobre el rol/disponibilidad de otro agente, pregúntale a `manager` vía `link_prompt` — es
 quien mantiene la vista completa de Azure DevOps y de con quién está hablando cada rol.
 
+## Buenas prácticas operativas (aprendidas de proyectos anteriores)
+
+Estas prácticas vienen de proyectos reales ya operados con esta misma estructura de equipo.
+El stack de infraestructura de este proyecto aún está por decidir, pero en cuanto exista
+(base de datos local, entornos, pipelines...) aplícalas:
+
+- **Backup antes de tocar un entorno real**: nunca ejecutes migraciones, scripts o
+  despliegues contra un entorno compartido o real sin tomar antes un backup/dump del estado
+  actual — además de la autorización explícita ya exigida arriba.
+- **Gestión de credenciales**: ningún script debe hardcodear, loguear ni persistir
+  contraseñas de entornos reales. Pídelas de forma interactiva en el momento de la ejecución
+  (`read -s`) y, si necesitas pasarlas a un cliente por línea de comandos, prefiere su
+  variable de entorno dedicada (p. ej. `MYSQL_PWD`) frente a pasarla como argumento
+  (`-p"$password"`), que queda expuesta en la lista de procesos.
+- **Despliegues por iteración con auditoría**: si el proyecto acaba necesitando desplegar
+  lotes de scripts (SQL u otros) por iteración, hazlo con un script maestro idempotente que
+  registre en una tabla/fichero de auditoría fecha, script, salida y resultado (OK/KO) de
+  cada uno, y que se detenga en el primer fallo sin continuar con el resto. Coordina antes
+  con `backend`/`frontend` (vía `link_prompt`) el listado exacto de artefactos de esa
+  iteración y su estado de merge — no incluyas nada de una rama/PR sin mergear salvo
+  autorización expresa del humano.
+- **Cuidado con CRLF si algo se edita en Windows**: si un script `.sh` falla dentro de un
+  contenedor Linux justo tras la primera línea, sospecha de finales de línea CRLF;
+  corrígelo con `sed -i 's/\r$//' <fichero>` dentro del contenedor.
+- **Documenta host/puertos/dependencias reales**: en cuanto exista infraestructura real
+  (base de datos, colas, etc.), documenta aquí o en `/workspace/docs/` el host canónico,
+  puertos y variables de entorno, y mantenlo sincronizado si cambia — evita que convivan
+  variantes antiguas o inconsistentes entre scripts.
+
 ## Notas
 
 - El stack tecnológico de backend/frontend todavía está por decidir — coordínate con ellos
