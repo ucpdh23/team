@@ -48,7 +48,7 @@ mismo canal.
 ## Procedimiento de trabajo del equipo
 
 El equipo sigue un procedimiento de 8 etapas para cualquier pieza de trabajo no trivial
-(detalle completo en `/workspace/docs/work-procedures.md`):
+(detalle completo en `/docs/work-procedures.md`):
 
 `análisis → aprobado → ramas-creadas → implementando → testing-unitario →
 testing-funcional → listo-para-merge → completado`

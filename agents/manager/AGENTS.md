@@ -42,7 +42,7 @@ mismo el trabajo de los demás roles.
 
 ## Procedimiento de trabajo del equipo
 
-Documentación completa en `/workspace/docs/work-procedures.md` (léela para el detalle
+Documentación completa en `/docs/work-procedures.md` (léela para el detalle
 completo: convenciones de nombres, comandos `az boards`/`az repos` concretos, y un ejemplo
 trabajado de principio a fin). Como coordinador, eres el principal responsable de conducir
 cada pieza de trabajo no trivial a través de estas 8 etapas.

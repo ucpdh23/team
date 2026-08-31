@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# pi-link es el mecanismo de comunicación entre agentes: lo instalan todos los contenedores.
-# PI_PACKAGES permite añadir paquetes/plugins extra específicos de cada rol (ver docker-compose.yml).
-PACKAGES="npm:pi-link ${PI_PACKAGES:-}"
+# pi-link (comunicación entre agentes) y pi-cost-counter (tracking de coste de LLM, guarda su
+# estado en ~/.pi/cost-tracker/ — ver docker-compose.yml para el mount que lo expone fuera del
+# contenedor) los instalan los 5 por igual. PI_PACKAGES añade paquetes/plugins extra
+# específicos de cada rol (ver docker-compose.yml).
+PACKAGES="npm:pi-link npm:@ctogg/pi-cost-counter ${PI_PACKAGES:-}"
 
 for pkg in $PACKAGES; do
   echo "[entrypoint] instalando paquete pi: $pkg"

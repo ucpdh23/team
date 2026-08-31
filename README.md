@@ -90,9 +90,12 @@ without any external script ever telling the `pi` process anything directly.
 .
 ├── docker-compose.yml
 ├── .env.example              # copy to .env — ANTHROPIC_API_KEY is optional (see Authentication)
-├── docs/
+├── docs/                        # mounted read-write at /docs in every container (not /workspace)
 │   ├── introduction.md         # human-oriented intro to the team
 │   └── work-procedures.md      # detailed workflow: stages, roles, ADO/local workitem changes
+├── cost-tracking/
+│   └── <role>/                  # mounted at ~/.pi/cost-tracker in that role's container — see
+│                                 # "LLM cost tracking" below
 ├── docker/
 │   ├── Dockerfile.pi           # base image: manager, backend, frontend, devops
 │   ├── Dockerfile.cypress      # variant on top of cypress/included (TODO: pin version)
@@ -101,13 +104,14 @@ without any external script ever telling the `pi` process anything directly.
 │   └── generate-tmux-conf.sh   # generates /etc/tmux.conf at build time (colors + extended-keys)
 ├── agents/
 │   └── <role>/
-│       ├── AGENTS.md           # team context: who this agent is, who the rest of the team is
+│       ├── AGENTS.md           # team context, mounted at ~/.pi/agent/AGENTS.md (global for pi)
 │       └── pi/                 # mounted at /workspace/.pi in the container
 │           └── extensions/     # local pi extensions specific to this role
 └── workspace/
-    └── <role>/                  # source code for that role, mounted at /workspace in the container
-        └── workitems/           # created by the agent itself inside its own project (private to
-                                  # this role, not shared — see docs/work-procedures.md)
+    └── <role>/                  # source code for that role, mounted at /workspace in the container —
+        └── workitems/           # kept as empty of infra files as possible; created by the agent
+                                  # itself inside its own project (private to this role, not shared —
+                                  # see docs/work-procedures.md)
 ```
 
 `<role>` is one of: `manager`, `backend`, `frontend`, `devops`, `cypress`.
@@ -245,17 +249,31 @@ Each service in `docker-compose.yml` has its own `PI_PACKAGES` variable (extra p
 installed via `pi install npm:...` / `git:...`, space-separated) and its own
 `agents/<role>/pi/` folder, mounted at `/workspace/.pi` in the container (local project
 extensions live under `agents/<role>/pi/extensions/`; other `.pi` configuration can go
-alongside it as needed). `pi-link` is installed on all 5 since it's the shared communication
-mechanism; the rest of each role's plugins/skills are managed independently.
+alongside it as needed). `pi-link` and `pi-cost-counter` (see below) are installed on all 5
+by `entrypoint.sh` since they're shared infrastructure, not per-role choices; the rest of
+each role's plugins/skills are managed independently via `PI_PACKAGES`.
+
+## LLM cost tracking
+
+All 5 agents install [`@ctogg/pi-cost-counter`](https://pi.dev/packages/@ctogg/pi-cost-counter),
+which tracks the cost of each LLM call and persists it under `~/.pi/cost-tracker/`. That
+directory is bind-mounted per role to `cost-tracking/<role>/` in this repo (instead of a
+Docker volume) specifically so it's browsable from the host without `docker exec`: open
+`cost-tracking/` to see every role's cost data side by side, or `cost-tracking/<role>/` for
+just one. Its contents change on every run and aren't meant to be versioned — see
+`.gitignore`.
 
 ## Team context (`AGENTS.md`)
 
-`pi` automatically loads `AGENTS.md` from the working directory on startup. Each role has
-its own at `agents/<role>/AGENTS.md`, mounted at `/workspace/AGENTS.md` in its container: it
-explains that agent's role, who the rest of the team is, and how to talk to them via
-pi-link (`link_list`, `link_send`, `link_prompt`, `link_compact`). Since it's a regular bind
-mount, editing it from inside the session writes the change straight back into the repo —
-nothing extra needed to persist it.
+`pi` loads `AGENTS.md` from `~/.pi/agent/AGENTS.md` (global instructions) plus any found
+walking up from the working directory, concatenating all of them. Each role's team context
+lives at `agents/<role>/AGENTS.md`, mounted at `~/.pi/agent/AGENTS.md` inside its container
+(not under `/workspace` — see [Folder structure](#folder-structure)): it explains that
+agent's role, who the rest of the team is, and how to talk to them via pi-link (`link_list`,
+`link_send`, `link_prompt`, `link_compact`). Since it's a regular bind mount, editing it from
+inside the session writes the change straight back into the repo — nothing extra needed to
+persist it. `docs/` (introduction, work procedures) is mounted the same way, at `/docs`
+rather than `/workspace/docs`, so `/workspace` stays free for the role's actual repository.
 
 ## Troubleshooting
 

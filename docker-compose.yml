@@ -29,10 +29,11 @@ services:
     volumes:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/manager:/workspace
-      - ./agents/manager/AGENTS.md:/workspace/AGENTS.md
       - ./agents/manager/pi:/workspace/.pi
-      - ./docs:/workspace/docs
+      - ./docs:/docs
       - manager-pi-home:/root/.pi/agent
+      - ./agents/manager/AGENTS.md:/root/.pi/agent/AGENTS.md
+      - ./cost-tracking/manager:/root/.pi/cost-tracker
 
   backend:
     build:
@@ -60,10 +61,11 @@ services:
     volumes:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/backend:/workspace
-      - ./agents/backend/AGENTS.md:/workspace/AGENTS.md
       - ./agents/backend/pi:/workspace/.pi
-      - ./docs:/workspace/docs
+      - ./docs:/docs
       - backend-pi-home:/root/.pi/agent
+      - ./agents/backend/AGENTS.md:/root/.pi/agent/AGENTS.md
+      - ./cost-tracking/backend:/root/.pi/cost-tracker
       - backend-eclipse-workspace:/root/eclipse-workspace
 
   frontend:
@@ -84,10 +86,11 @@ services:
     volumes:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/frontend:/workspace
-      - ./agents/frontend/AGENTS.md:/workspace/AGENTS.md
       - ./agents/frontend/pi:/workspace/.pi
-      - ./docs:/workspace/docs
+      - ./docs:/docs
       - frontend-pi-home:/root/.pi/agent
+      - ./agents/frontend/AGENTS.md:/root/.pi/agent/AGENTS.md
+      - ./cost-tracking/frontend:/root/.pi/cost-tracker
 
   devops:
     build:
@@ -107,10 +110,11 @@ services:
     volumes:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/devops:/workspace
-      - ./agents/devops/AGENTS.md:/workspace/AGENTS.md
       - ./agents/devops/pi:/workspace/.pi
-      - ./docs:/workspace/docs
+      - ./docs:/docs
       - devops-pi-home:/root/.pi/agent
+      - ./agents/devops/AGENTS.md:/root/.pi/agent/AGENTS.md
+      - ./cost-tracking/devops:/root/.pi/cost-tracker
 
   cypress:
     build:
@@ -130,10 +134,11 @@ services:
     volumes:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/cypress:/workspace
-      - ./agents/cypress/AGENTS.md:/workspace/AGENTS.md
       - ./agents/cypress/pi:/workspace/.pi
-      - ./docs:/workspace/docs
+      - ./docs:/docs
       - cypress-pi-home:/root/.pi/agent
+      - ./agents/cypress/AGENTS.md:/root/.pi/agent/AGENTS.md
+      - ./cost-tracking/cypress:/root/.pi/cost-tracker
 
 # El nombre de referencia de cada volumen (la clave YAML) es fijo y es lo que usan los
 # servicios de arriba para citarlo; el nombre real del volumen en Docker (`name:`) sí usa

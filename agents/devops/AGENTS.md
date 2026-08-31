@@ -42,7 +42,7 @@ tarea por pi-link, repórtale el resultado por el mismo canal.
 ## Procedimiento de trabajo del equipo
 
 El equipo sigue un procedimiento de 8 etapas para cualquier pieza de trabajo no trivial
-(detalle completo en `/workspace/docs/work-procedures.md`):
+(detalle completo en `/docs/work-procedures.md`):
 
 `análisis → aprobado → ramas-creadas → implementando → testing-unitario →
 testing-funcional → listo-para-merge → completado`
@@ -99,7 +99,7 @@ El stack de infraestructura de este proyecto aún está por decidir, pero en cua
   contenedor Linux justo tras la primera línea, sospecha de finales de línea CRLF;
   corrígelo con `sed -i 's/\r$//' <fichero>` dentro del contenedor.
 - **Documenta host/puertos/dependencias reales**: en cuanto exista infraestructura real
-  (base de datos, colas, etc.), documenta aquí o en `/workspace/docs/` el host canónico,
+  (base de datos, colas, etc.), documenta aquí o en `/docs/` el host canónico,
   puertos y variables de entorno, y mantenlo sincronizado si cambia — evita que convivan
   variantes antiguas o inconsistentes entre scripts.
 
