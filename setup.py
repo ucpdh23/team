@@ -5,8 +5,11 @@ Solo usa la librería estándar para poder ejecutarse igual en Windows y Linux c
 `python setup.py <flag>` (o `python3 setup.py <flag>`), sin instalar nada más.
 """
 
+from __future__ import annotations
+
 import argparse
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -16,6 +19,7 @@ ENV_FILE = ROOT / ".env"
 ENV_BACKUP = ROOT / ".env.bak"
 
 TRUTHY_ANSWERS = {"s", "si", "sí", "y", "yes"}
+ROLES = ("manager", "backend", "frontend", "devops", "cypress")
 
 
 def parse_env_example(path: Path):
@@ -87,6 +91,88 @@ def cmd_init(args) -> int:
     return 0
 
 
+def run_docker(*args) -> int:
+    cmd = ["docker", *args]
+    print(f"[setup] ejecutando: {' '.join(cmd)}")
+    try:
+        result = subprocess.run(cmd, cwd=ROOT)
+    except FileNotFoundError:
+        print(
+            "No se encuentra el comando 'docker' en el PATH. Instala Docker Desktop "
+            "(Windows/macOS) o Docker Engine + Compose plugin (Linux).",
+            file=sys.stderr,
+        )
+        return 1
+    return result.returncode
+
+
+def run_compose(*compose_args) -> int:
+    return run_docker("compose", *compose_args)
+
+
+def cmd_start(args) -> int:
+    return run_compose("up", "-d", "--build")
+
+
+def cmd_stop(args) -> int:
+    return run_compose("down")
+
+
+def resolve_container(role: str) -> str | None:
+    """Devuelve el ID del contenedor en marcha para ese rol (vía `docker compose ps -q
+    <role>`), que resuelve el nombre real sin tener que reimplementar aquí la lógica de
+    interpolación de CONTAINER_PREFIX de docker-compose.yml."""
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "ps", "-q", role],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        print(
+            "No se encuentra el comando 'docker' en el PATH. Instala Docker Desktop "
+            "(Windows/macOS) o Docker Engine + Compose plugin (Linux).",
+            file=sys.stderr,
+        )
+        return None
+
+    if result.returncode != 0:
+        print(result.stderr.strip(), file=sys.stderr)
+        return None
+
+    container_id = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+    if not container_id:
+        print(
+            f"No hay ningún contenedor en marcha para el rol '{role}' "
+            "(¿lanzaste 'python setup.py --start'?).",
+            file=sys.stderr,
+        )
+        return None
+    return container_id
+
+
+def cmd_tmux(args) -> int:
+    container = resolve_container(args.tmux)
+    if container is None:
+        return 1
+    return run_docker("exec", "-it", container, "tmux", "attach", "-t", "pi")
+
+
+def cmd_logs(args) -> int:
+    container = resolve_container(args.logs)
+    if container is None:
+        return 1
+    return run_docker("logs", "--tail", "100", "-f", container)
+
+
+def cmd_bash(args) -> int:
+    container = resolve_container(args.bash)
+    if container is None:
+        return 1
+    return run_docker("exec", "-it", container, "bash")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="setup.py",
@@ -104,6 +190,37 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="No pedir confirmación antes de sobreescribir un .env existente.",
     )
+    parser.add_argument(
+        "--start",
+        action="store_true",
+        help="Equivalente a 'docker compose up -d --build': construye (si hace falta) y "
+        "levanta los 5 contenedores en segundo plano.",
+    )
+    parser.add_argument(
+        "--stop",
+        action="store_true",
+        help="Equivalente a 'docker compose down': para y elimina los 5 contenedores sin "
+        "tocar los volúmenes (logins/estado de cada agente se conservan).",
+    )
+    parser.add_argument(
+        "--tmux",
+        metavar="ROLE",
+        choices=ROLES,
+        help="Conecta a la sesión tmux persistente del contenedor de ese rol "
+        "(docker exec -it ... tmux attach -t pi). Ctrl-b d para desconectar sin matarla.",
+    )
+    parser.add_argument(
+        "--logs",
+        metavar="ROLE",
+        choices=ROLES,
+        help="Sigue los logs del contenedor de ese rol (docker logs --tail 100 -f).",
+    )
+    parser.add_argument(
+        "--bash",
+        metavar="ROLE",
+        choices=ROLES,
+        help="Abre una shell bash interactiva dentro del contenedor de ese rol.",
+    )
     return parser
 
 
@@ -113,6 +230,16 @@ def main(argv=None) -> int:
 
     if args.init:
         return cmd_init(args)
+    if args.start:
+        return cmd_start(args)
+    if args.stop:
+        return cmd_stop(args)
+    if args.tmux:
+        return cmd_tmux(args)
+    if args.logs:
+        return cmd_logs(args)
+    if args.bash:
+        return cmd_bash(args)
 
     parser.print_help()
     return 0

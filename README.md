@@ -122,8 +122,8 @@ without any external script ever telling the `pi` process anything directly.
 ## Getting started
 
 ```bash
-python setup.py --init   # interactively builds .env from .env.example (Enter keeps the default)
-docker compose up -d --build
+python setup.py --init    # interactively builds .env from .env.example (Enter keeps the default)
+python setup.py --start   # docker compose up -d --build
 ```
 
 ## Configuration (`.env`)
@@ -143,7 +143,14 @@ To rebuild after changing any Dockerfile/script and pick up the changes without 
 existing sessions or logins:
 
 ```bash
-docker compose up -d --build
+python setup.py --start   # same as docker compose up -d --build
+```
+
+To stop the 5 containers without touching their volumes (each agent's login/state is kept
+for next time):
+
+```bash
+python setup.py --stop   # same as docker compose down
 ```
 
 > **Do not run `docker compose down -v` / `--volumes`** unless you actually want to wipe the
@@ -158,17 +165,24 @@ needed once per container.
 
 ## Connecting to an agent
 
-Each agent runs in a persistent tmux session (stays alive even with nobody connected):
+Each agent runs in a persistent tmux session (stays alive even with nobody connected).
+`setup.py` resolves the right container for a role via `docker compose ps -q <role>`, so
+these work regardless of `CONTAINER_PREFIX`:
 
 ```bash
-docker exec -it pi-<role> tmux attach -t pi
+python setup.py --tmux <role>   # attach to the agent's persistent tmux session
+python setup.py --bash <role>   # plain interactive bash shell in the container
+python setup.py --logs <role>   # tail -f the last 100 lines of the container's logs
 ```
 
-To detach **without killing the session**: `Ctrl-b` followed by `d` (tmux's default prefix —
-untouched here). `Ctrl+D` inside `pi`, on the other hand, makes `pi` end its own session
-(same as `bash` or a Python REPL); since it's the only process in that tmux session, the
-session closes with it, and `entrypoint.sh`'s watchdog brings it back up within ~5s — the
-Docker container itself never restarts, only the `pi` process inside it.
+(equivalent to `docker exec -it pi-<role> tmux attach -t pi` / `docker exec -it pi-<role>
+bash` / `docker logs --tail 100 -f pi-<role>`, if you'd rather run Docker directly.)
+
+To detach from tmux **without killing the session**: `Ctrl-b` followed by `d` (tmux's
+default prefix — untouched here). `Ctrl+D` inside `pi`, on the other hand, makes `pi` end
+its own session (same as `bash` or a Python REPL); since it's the only process in that tmux
+session, the session closes with it, and `entrypoint.sh`'s watchdog brings it back up within
+~5s — the Docker container itself never restarts, only the `pi` process inside it.
 
 ## Remote VS Code
 
@@ -202,20 +216,23 @@ nothing extra needed to persist it.
 
 **Broken special characters (`_` instead of accents/¡¿/ñ)** — the image sets
 `LANG=LC_ALL=C.UTF-8` in the Dockerfile; if you see this after an image change, rebuild with
-`docker compose up -d --build`.
+`python setup.py --start`.
 
 **Colors/grays showing up as black inside tmux** — `docker/generate-tmux-conf.sh` generates
 `/etc/tmux.conf` at build time with `default-terminal tmux-256color` + `terminal-overrides
 ",*:RGB"` to negotiate truecolor correctly. If it persists, the *client* terminal you're
-running `docker exec ... tmux attach` from is likely not advertising truecolor support.
+running `python setup.py --tmux <role>` from is likely not advertising truecolor support.
 
 **An agent doesn't show up on pi-link / `link_list` doesn't see it** — check in order:
 
 ```bash
-docker logs pi-<role> --tail 20                       # did the broker start? hub or spoke?
-docker exec pi-<role> cat /var/run/pi-link/hub.addr    # who is the mesh pointing at right now?
-docker exec pi-<role> tmux capture-pane -t pi -p       # pi-link's on-screen status
+python setup.py --logs <role>                          # did the broker start? hub or spoke?
+docker exec pi-<role> cat /var/run/pi-link/hub.addr     # who is the mesh pointing at right now?
+docker exec pi-<role> tmux capture-pane -t pi -p        # pi-link's on-screen status
 ```
+
+(the last two are quick one-off commands, not worth a dedicated `setup.py` flag — or run
+`python setup.py --bash <role>` and type them directly inside the container.)
 
 ## TODO
 
