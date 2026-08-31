@@ -20,6 +20,17 @@ SESSION="pi"
 ADDR_FILE="/var/run/pi-link/hub.addr"
 BROKER_PID=""
 
+# Eclipse + jdtbridge (solo backend: se activa solo si /opt/eclipse existe en la imagen, no
+# aplica a manager/frontend/devops/cypress). Corre headless bajo Xvfb, con workspace
+# persistente para no perder el índice de JDT en cada reinicio del contenedor. El plugin
+# jdtbridge, ya instalado en la imagen, expone su API por 127.0.0.1 en cuanto Eclipse arranca;
+# la CLI `jdt` la descubre sola vía ~/.jdtbridge/instances/.
+ECLIPSE_BIN="/opt/eclipse/eclipse"
+ECLIPSE_WORKSPACE="${ECLIPSE_WORKSPACE:-/root/eclipse-workspace}"
+ECLIPSE_DISPLAY=":99"
+ECLIPSE_PID=""
+XVFB_PID=""
+
 start_broker() {
   /usr/local/bin/pi-link-broker.sh &
   BROKER_PID=$!
@@ -31,14 +42,26 @@ start_session() {
   tmux new-session -d -s "$SESSION" -x 220 -y 50 "$quoted"
 }
 
+start_eclipse() {
+  [ -x "$ECLIPSE_BIN" ] || return 0
+  Xvfb "$ECLIPSE_DISPLAY" -screen 0 1024x768x24 &
+  XVFB_PID=$!
+  mkdir -p "$ECLIPSE_WORKSPACE"
+  DISPLAY="$ECLIPSE_DISPLAY" "$ECLIPSE_BIN" -data "$ECLIPSE_WORKSPACE" -nosplash &
+  ECLIPSE_PID=$!
+}
+
 term_handler() {
   tmux kill-session -t "$SESSION" 2>/dev/null || true
   [ -n "$BROKER_PID" ] && kill "$BROKER_PID" 2>/dev/null || true
+  [ -n "$ECLIPSE_PID" ] && kill "$ECLIPSE_PID" 2>/dev/null || true
+  [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null || true
   exit 0
 }
 trap term_handler SIGTERM SIGINT
 
 start_broker
+start_eclipse
 
 # Esperamos (con timeout corto) a que el broker resuelva si este contenedor es hub o spoke
 # antes de arrancar pi, para minimizar la ventana de carrera en el primer arranque conjunto.
@@ -51,7 +74,7 @@ if ! tmux has-session -t "$SESSION" 2>/dev/null; then
   start_session "$@"
 fi
 
-# Watchdog: si el broker o la sesión tmux mueren, se relanzan solos.
+# Watchdog: si el broker, la sesión tmux, o (en backend) Eclipse/Xvfb mueren, se relanzan solos.
 while true; do
   if ! kill -0 "$BROKER_PID" 2>/dev/null; then
     echo "[entrypoint] broker pi-link caido, relanzando..."
@@ -60,6 +83,10 @@ while true; do
   if ! tmux has-session -t "$SESSION" 2>/dev/null; then
     echo "[entrypoint] sesion tmux '$SESSION' no encontrada, relanzando pi..."
     start_session "$@"
+  fi
+  if [ -x "$ECLIPSE_BIN" ] && { [ -z "$ECLIPSE_PID" ] || ! kill -0 "$ECLIPSE_PID" 2>/dev/null; }; then
+    echo "[entrypoint] eclipse (jdtbridge) caido, relanzando..."
+    start_eclipse
   fi
   sleep 5 &
   wait $!

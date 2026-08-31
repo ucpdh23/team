@@ -7,19 +7,42 @@ ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep curl tmux socat util-linux ncurses-term \
+  && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep curl wget openssh-client tmux socat util-linux ncurses-term \
   && rm -rf /var/lib/apt/lists/*
 
 COPY docker/generate-tmux-conf.sh /usr/local/bin/generate-tmux-conf.sh
 RUN chmod +x /usr/local/bin/generate-tmux-conf.sh && /usr/local/bin/generate-tmux-conf.sh
 
+# GitHub CLI (gh) — en todos los roles que usan este Dockerfile.
+RUN mkdir -p -m 755 /usr/share/keyrings \
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends gh \
+  && rm -rf /var/lib/apt/lists/*
+
+# Azure CLI + extensión azure-devops — en todos los roles que usan este Dockerfile.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends gnupg \
+  && mkdir -p /etc/apt/keyrings \
+  && curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg \
+  && chmod go+r /etc/apt/keyrings/microsoft.gpg \
+  && . /etc/os-release \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/azure-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends azure-cli \
+  && az extension add --name azure-devops \
+  && rm -rf /var/lib/apt/lists/*
+
 RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 
 WORKDIR /workspace
 
-# TODO: cuando se decida la tecnología de cada rol (backend Java/Python, frontend Angular,
-# devops terraform/kubectl, extensión pi de Eclipse headless para Java, etc.) este Dockerfile
-# se dividirá en uno por rol añadiendo aquí el toolchain específico.
+# backend ya tiene su propio Dockerfile (docker/Dockerfile.backend: Java 21/Temurin, Maven,
+# Python 3.14, Eclipse JDT Language Server). Sigue pendiente para frontend (Angular) y devops
+# (terraform/kubectl u otro) — cuando se decida su stack, este Dockerfile compartido se
+# dividirá también para ellos, añadiendo aquí el toolchain específico de cada uno.
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/pi-link-broker.sh /usr/local/bin/pi-link-broker.sh

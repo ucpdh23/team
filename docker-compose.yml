@@ -26,13 +26,14 @@ services:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/manager:/workspace
       - ./agents/manager/AGENTS.md:/workspace/AGENTS.md
-      - ./agents/manager/extensions:/workspace/.pi/extensions
+      - ./agents/manager/pi:/workspace/.pi
+      - ./docs:/workspace/docs
       - manager-pi-home:/root/.pi/agent
 
   backend:
     build:
       context: .
-      dockerfile: docker/Dockerfile.pi
+      dockerfile: docker/Dockerfile.backend
     image: team-pi-backend
     container_name: pi-backend
     environment:
@@ -44,8 +45,10 @@ services:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/backend:/workspace
       - ./agents/backend/AGENTS.md:/workspace/AGENTS.md
-      - ./agents/backend/extensions:/workspace/.pi/extensions
+      - ./agents/backend/pi:/workspace/.pi
+      - ./docs:/workspace/docs
       - backend-pi-home:/root/.pi/agent
+      - backend-eclipse-workspace:/root/eclipse-workspace
 
   frontend:
     build:
@@ -62,7 +65,8 @@ services:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/frontend:/workspace
       - ./agents/frontend/AGENTS.md:/workspace/AGENTS.md
-      - ./agents/frontend/extensions:/workspace/.pi/extensions
+      - ./agents/frontend/pi:/workspace/.pi
+      - ./docs:/workspace/docs
       - frontend-pi-home:/root/.pi/agent
 
   devops:
@@ -80,7 +84,8 @@ services:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/devops:/workspace
       - ./agents/devops/AGENTS.md:/workspace/AGENTS.md
-      - ./agents/devops/extensions:/workspace/.pi/extensions
+      - ./agents/devops/pi:/workspace/.pi
+      - ./docs:/workspace/docs
       - devops-pi-home:/root/.pi/agent
 
   cypress:
@@ -98,13 +103,15 @@ services:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/cypress:/workspace
       - ./agents/cypress/AGENTS.md:/workspace/AGENTS.md
-      - ./agents/cypress/extensions:/workspace/.pi/extensions
+      - ./agents/cypress/pi:/workspace/.pi
+      - ./docs:/workspace/docs
       - cypress-pi-home:/root/.pi/agent
 
 volumes:
   pi-link-coord:
   manager-pi-home:
   backend-pi-home:
+  backend-eclipse-workspace:
   frontend-pi-home:
   devops-pi-home:
   cypress-pi-home:

@@ -75,12 +75,24 @@ working or not, and reacts with its own reconnection logic (2-5s randomized back
 hub container dies, the rest reconnect on their own, following pi-link's own procedure,
 without any external script ever telling the `pi` process anything directly.
 
+## Documentation
+
+- [`docs/introduction.md`](docs/introduction.md) — a human-oriented introduction to the
+  team, written for someone joining the project (what this is, who's on the team, how to
+  work with it).
+- [`docs/work-procedures.md`](docs/work-procedures.md) — the detailed workflow: the eight
+  stages a piece of work moves through, each role's objectives, and exactly what changes in
+  Azure DevOps and in each role's own `workitems/` folder along the way.
+
 ## Folder structure
 
 ```
 .
 ├── docker-compose.yml
 ├── .env.example              # copy to .env — ANTHROPIC_API_KEY is optional (see Authentication)
+├── docs/
+│   ├── introduction.md         # human-oriented intro to the team
+│   └── work-procedures.md      # detailed workflow: stages, roles, ADO/local workitem changes
 ├── docker/
 │   ├── Dockerfile.pi           # base image: manager, backend, frontend, devops
 │   ├── Dockerfile.cypress      # variant on top of cypress/included (TODO: pin version)
@@ -90,9 +102,12 @@ without any external script ever telling the `pi` process anything directly.
 ├── agents/
 │   └── <role>/
 │       ├── AGENTS.md           # team context: who this agent is, who the rest of the team is
-│       └── extensions/         # local pi extensions specific to this role
+│       └── pi/                 # mounted at /workspace/.pi in the container
+│           └── extensions/     # local pi extensions specific to this role
 └── workspace/
     └── <role>/                  # source code for that role, mounted at /workspace in the container
+        └── workitems/           # created by the agent itself inside its own project (private to
+                                  # this role, not shared — see docs/work-procedures.md)
 ```
 
 `<role>` is one of: `manager`, `backend`, `frontend`, `devops`, `cypress`.
@@ -154,9 +169,10 @@ easy to spot in the list.
 
 Each service in `docker-compose.yml` has its own `PI_PACKAGES` variable (extra pi packages
 installed via `pi install npm:...` / `git:...`, space-separated) and its own
-`agents/<role>/extensions/` folder (local project extensions). `pi-link` is installed on all
-5 since it's the shared communication mechanism; the rest of each role's plugins/skills are
-managed independently.
+`agents/<role>/pi/` folder, mounted at `/workspace/.pi` in the container (local project
+extensions live under `agents/<role>/pi/extensions/`; other `.pi` configuration can go
+alongside it as needed). `pi-link` is installed on all 5 since it's the shared communication
+mechanism; the rest of each role's plugins/skills are managed independently.
 
 ## Team context (`AGENTS.md`)
 

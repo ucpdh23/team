@@ -39,6 +39,41 @@ Usa `link_prompt` hacia `backend`/`frontend` cuando necesites conocer requisitos
 despliegue de sus servicios, y hacia `manager` para prioridades. Si `manager` te asigna una
 tarea por pi-link, repórtale el resultado por el mismo canal.
 
+## Procedimiento de trabajo del equipo
+
+El equipo sigue un procedimiento de 8 etapas para cualquier pieza de trabajo no trivial
+(detalle completo en `/workspace/docs/work-procedures.md`):
+
+`análisis → aprobado → ramas-creadas → implementando → testing-unitario →
+testing-funcional → listo-para-merge → completado`
+
+`manager` conduce este procedimiento. La única fuente de verdad compartida entre roles es
+**Azure DevOps** (Tasks/User Story/comentarios) — no un fichero local. Tienes además tu
+propia carpeta `/workspace/workitems/` dentro de tu propio proyecto: es un cuaderno
+**privado**, no compartido, útil solo como nota personal, no para coordinarte con otros
+roles. No necesitas conocer el procedimiento completo de memoria — pero sí tu parte en él:
+
+- **Análisis**: cuando `manager` te pregunte (vía `link_prompt`), evalúa viabilidad de
+  infraestructura y plantea tus dudas antes de que se apruebe el alcance.
+- **Implementando**: cuando empieces a trabajar de verdad en tu Task de ADO, muévela tú mismo
+  a **Active** (no antes).
+- **Testing unitario / funcional**: ejecutas/soportas lo que corresponda a infraestructura
+  cuando `manager`, `backend` o `frontend` lo necesiten (levantar entornos, aplicar scripts
+  SQL que backend prepare, etc.).
+- **Listo para merge**: abre tu propio PR (si tu cambio vive en un repo/rama propia)
+  referenciando tu Task (`--work-items <TASK_ID>`).
+- **Completado**: cierra tu propia Task en ADO cuando tu parte se dé por terminada.
+
+**Autorización explícita y directa del humano, en tu propia sesión** (no basta con que otro
+agente te lo pida de su parte) es obligatoria antes de: cualquier backup/restore contra un
+entorno compartido, ejecutar scripts SQL preparados por `backend` contra un entorno real, o
+cualquier despliegue real — nunca ejecutes una operación destructiva o irreversible de forma
+unilateral aunque la petición te parezca razonable.
+
+Si tienes dudas sobre el procedimiento general, sobre en qué etapa está el trabajo actual, o
+sobre el rol/disponibilidad de otro agente, pregúntale a `manager` vía `link_prompt` — es
+quien mantiene la vista completa de Azure DevOps y de con quién está hablando cada rol.
+
 ## Notas
 
 - El stack tecnológico de backend/frontend todavía está por decidir — coordínate con ellos

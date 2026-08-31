@@ -1,0 +1,123 @@
+# Dockerfile específico del rol backend (ver agents/backend/AGENTS.md — Java 21 + Maven como
+# stack asumido, Python 3.14 disponible para scripts de apoyo). Separado de Dockerfile.pi
+# (manager/frontend/devops) para no inflar esas imágenes con un toolchain que no necesitan.
+FROM node:24-bookworm-slim
+
+# Sin esto, los bytes multibyte UTF-8 (tildes, ¡¿, ñ) llegan mal a tmux/pi porque la imagen
+# slim viene en locale C/POSIX por defecto. C.UTF-8 ya viene con glibc, no requiere generar
+# locales.
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# xvfb/xauth/libgtk-3-0 y el resto de libs X11 son para correr Eclipse (SWT/GTK) headless más
+# abajo — Eclipse necesita un framebuffer virtual aunque nadie vaya a verlo nunca.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep curl wget openssh-client tmux socat util-linux ncurses-term gnupg \
+     xvfb xauth libgtk-3-0 libxtst6 libxi6 libxrender1 libasound2 libnss3 \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY docker/generate-tmux-conf.sh /usr/local/bin/generate-tmux-conf.sh
+RUN chmod +x /usr/local/bin/generate-tmux-conf.sh && /usr/local/bin/generate-tmux-conf.sh
+
+# GitHub CLI (gh)
+RUN mkdir -p -m 755 /usr/share/keyrings \
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends gh \
+  && rm -rf /var/lib/apt/lists/*
+
+# Azure CLI + extensión azure-devops
+RUN mkdir -p /etc/apt/keyrings \
+  && curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg \
+  && chmod go+r /etc/apt/keyrings/microsoft.gpg \
+  && . /etc/os-release \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/azure-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends azure-cli \
+  && az extension add --name azure-devops \
+  && rm -rf /var/lib/apt/lists/*
+
+# Java 21 (Eclipse Temurin). Debian bookworm solo trae OpenJDK 17 en sus repos oficiales, así
+# que se usa el repo apt oficial de Adoptium en vez de la versión de Debian.
+RUN mkdir -p /etc/apt/keyrings \
+  && curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor > /etc/apt/keyrings/adoptium.gpg \
+  && chmod go+r /etc/apt/keyrings/adoptium.gpg \
+  && . /etc/os-release \
+  && echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/adoptium.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends temurin-21-jdk \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# Maven, desde el binario oficial de Apache (no vía apt: el paquete `maven` de Debian depende
+# de default-jre-headless y arrastraría un segundo JDK/17 aparte del Temurin 21 de arriba).
+ARG MAVEN_VERSION=3.9.16
+RUN curl -fsSL "https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" -o /tmp/maven.tar.gz \
+  && tar -xzf /tmp/maven.tar.gz -C /opt \
+  && ln -s "/opt/apache-maven-${MAVEN_VERSION}" /opt/maven \
+  && rm /tmp/maven.tar.gz
+
+ENV MAVEN_HOME=/opt/maven
+ENV PATH="${MAVEN_HOME}/bin:${PATH}"
+
+# Python 3.14. No está en los repos de Debian bookworm (trae 3.11), así que se instala con uv
+# (gestor de versiones de Python de Astral, trae builds oficiales precompilados de
+# python-build-standalone — nada de compilar desde fuente). No se toca /usr/bin/python3 (el
+# 3.11 del sistema) para no romper herramientas de Debian que dependan de esa versión exacta.
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:${PATH}"
+RUN uv python install 3.14 \
+  && ln -sf "$(uv python find 3.14)" /usr/local/bin/python3.14 \
+  && ln -sf /usr/local/bin/python3.14 /usr/local/bin/python
+
+# Eclipse JDT Language Server headless — motor de inteligencia de código Java de Eclipse sin
+# GUI (habla LSP por stdio). Se instala el runtime; conectarlo como cliente LSP es una capa
+# aparte, no verificada todavía en este proyecto. Lanzador en docker/jdtls.sh -> `jdtls`.
+RUN mkdir -p /opt/jdtls \
+  && curl -fsSL https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz -o /tmp/jdtls.tar.gz \
+  && tar -xzf /tmp/jdtls.tar.gz -C /opt/jdtls \
+  && rm /tmp/jdtls.tar.gz
+COPY docker/jdtls.sh /usr/local/bin/jdtls
+RUN chmod +x /usr/local/bin/jdtls
+
+# Eclipse IDE (paquete "Java", release 2026-06) + jdtbridge (https://github.com/kaluchi/jdtbridge):
+# un plugin de Eclipse que expone las funcionalidades de JDT (búsqueda semántica, compilación
+# incremental, tests, refactor) como servidor HTTP en loopback, más una CLI Node (`jdt`) que
+# habla con él. A diferencia de jdt.ls de arriba, este SÍ necesita una instancia de Eclipse
+# real corriendo (por eso Xvfb) — no es un servidor LSP aislado.
+# Se instala en /opt/eclipse (ruta que la propia CLI de jdtbridge ya conoce por defecto, sin
+# necesidad de configurarla a mano) y se le añaden ahí mismo, headless vía p2 director, m2e
+# (soporte Maven en Eclipse, necesario para "jdt maven update") y la feature de jdtbridge,
+# tomando el ID de perfil p2 real que crea el propio instalador (no se asume un nombre fijo).
+RUN curl -fsSL "https://download.eclipse.org/technology/epp/downloads/release/2026-06/R/eclipse-java-2026-06-R-linux-gtk-x86_64.tar.gz" -o /tmp/eclipse.tar.gz \
+  && tar -xzf /tmp/eclipse.tar.gz -C /opt \
+  && rm /tmp/eclipse.tar.gz
+ENV PATH="/opt/eclipse:${PATH}"
+
+RUN ECLIPSE_PROFILE=$(basename "$(ls -d /opt/eclipse/p2/org.eclipse.equinox.p2.engine/profileRegistry/*.profile | head -1)" .profile) \
+  && echo "[eclipse] perfil p2 detectado: $ECLIPSE_PROFILE" \
+  && xvfb-run -a /opt/eclipse/eclipse -nosplash \
+       -application org.eclipse.equinox.p2.director \
+       -repository "https://download.eclipse.org/technology/m2e/releases/latest/,https://kaluchi.github.io/jdtbridge/" \
+       -installIU "org.eclipse.m2e.feature.feature.group,io.github.kaluchi.jdtbridge.feature.feature.group" \
+       -destination /opt/eclipse \
+       -profile "$ECLIPSE_PROFILE"
+
+# CLI `jdt`/`jdtbridge` — descubre solo la instancia de Eclipse en ejecución vía
+# ~/.jdtbridge/instances/ (lo escribe el propio plugin al arrancar Eclipse).
+RUN npm install -g @kaluchi/jdtbridge
+
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+WORKDIR /workspace
+
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY docker/pi-link-broker.sh /usr/local/bin/pi-link-broker.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/pi-link-broker.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["--link"]

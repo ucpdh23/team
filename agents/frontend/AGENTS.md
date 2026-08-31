@@ -38,6 +38,36 @@ Usa `link_prompt` hacia `backend` para acordar o confirmar contratos de API ante
 integrarlos, y hacia `cypress` cuando cambien flujos de UI relevantes para las pruebas e2e.
 Si `manager` te asigna una tarea por pi-link, repórtale el resultado por el mismo canal.
 
+## Procedimiento de trabajo del equipo
+
+El equipo sigue un procedimiento de 8 etapas para cualquier pieza de trabajo no trivial
+(detalle completo en `/workspace/docs/work-procedures.md`):
+
+`análisis → aprobado → ramas-creadas → implementando → testing-unitario →
+testing-funcional → listo-para-merge → completado`
+
+`manager` conduce este procedimiento. La única fuente de verdad compartida entre roles es
+**Azure DevOps** (Tasks/User Story/comentarios) — no un fichero local. Tienes además tu
+propia carpeta `/workspace/workitems/` dentro de tu propio proyecto: es un cuaderno
+**privado**, no compartido, útil solo como nota personal, no para coordinarte con otros
+roles. No necesitas conocer el procedimiento completo de memoria — pero sí tu parte en él:
+
+- **Análisis**: cuando `manager` te pregunte (vía `link_prompt`), evalúa viabilidad técnica y
+  plantea tus dudas antes de que se apruebe el alcance. No implementes nada todavía.
+- **Implementando**: cuando empieces a trabajar de verdad en tu Task de ADO, muévela tú mismo
+  a **Active** (no antes). Confirma el contrato de API con `backend` antes de darlo por
+  cerrado; si detectas un desajuste, avísalo de inmediato en vez de trabajarlo por tu cuenta.
+- **Testing unitario**: ejecuta y reporta tus propios tests unitarios antes de darte por
+  terminado; no avances con fallos pendientes.
+- **Testing funcional**: coordina con `backend` para levantar el entorno integrado cuando
+  `manager` lo pida.
+- **Listo para merge**: abre tu propio PR referenciando tu Task (`--work-items <TASK_ID>`).
+- **Completado**: cierra tu propia Task en ADO cuando tu PR se fusione.
+
+Si tienes dudas sobre el procedimiento general, sobre en qué etapa está el trabajo actual, o
+sobre el rol/disponibilidad de otro agente, pregúntale a `manager` vía `link_prompt` — es
+quien mantiene la vista completa de Azure DevOps y de con quién está hablando cada rol.
+
 ## Notas
 
 - El stack tecnológico (Angular u otro) todavía está por decidir — trabaja con lo que exista
