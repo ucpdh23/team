@@ -139,6 +139,7 @@ to `.env.bak` first). You can also skip it and copy/edit `.env.example` by hand.
 | `<ROLE>_REPO_URL` | Git remote (origin) URL for that role's real repository — SSH or HTTPS. Exposed inside each container as `REPO_URL`. Empty until each role's repo/stack is decided. |
 | `<ROLE>_GIT_TOKEN` | Access token (PAT) for that role's `REPO_URL` when it's `https://` — scope it to just that one repo (GitHub fine-grained PAT, or an Azure DevOps PAT limited to `Code: Read & Write`). Exposed inside each container as `GIT_TOKEN`; `entrypoint.sh` wires it into a git credential helper that reads it from the environment at auth time, so it's never written to the remote URL or `.git/config`. Leave it empty and use an SSH `REPO_URL` instead if you'd rather set up SSH manually for a given role — the two don't conflict. |
 | `ADO_ORGANIZATION_URL`, `ADO_PROJECT` | Shared Azure DevOps organization/project (see `docs/work-procedures.md`). Exposed as-is inside every container, ready for `az devops configure --defaults organization=$ADO_ORGANIZATION_URL project=$ADO_PROJECT`. |
+| `BACKEND_VNC_PASSWORD`, `BACKEND_VNC_PORT` | VNC/noVNC access to the `backend` container's headless Eclipse (see [Eclipse GUI access](#eclipse-gui-access-backend-via-novnc) below). Empty password = VNC disabled (default). Port defaults to `6080`, published on `127.0.0.1` only. |
 
 To rebuild after changing any Dockerfile/script and pick up the changes without losing
 existing sessions or logins:
@@ -194,6 +195,36 @@ Running Container** extension — it will see that machine's local Docker daemon
 Every container has a fixed `container_name` (`pi-manager`, `pi-backend`, ... — or
 `${CONTAINER_PREFIX}-manager`, etc. if you changed `CONTAINER_PREFIX` in `.env`) to make it
 easy to spot in the list.
+
+## Eclipse GUI access (backend, via noVNC)
+
+The `backend` container runs a full headless Eclipse (SWT/GTK under Xvfb) with the
+[jdtbridge](https://github.com/kaluchi/jdtbridge) plugin, driven day-to-day by the agent
+through the `jdt` CLI. `jdtbridge` has no command to *import* a new project into Eclipse's
+workspace, though — that still needs Eclipse's own GUI (`File → Import → Existing Maven
+Projects`, for example), and it's also the only way to get a real graphical Java debugger
+(breakpoints, variable inspection) rather than just console output. For that, the same Xvfb
+display Eclipse already runs on is exposed over VNC:
+
+1. Set `BACKEND_VNC_PASSWORD` in `.env` (`python setup.py --init`, or edit it by hand — see
+   `.env.example`). Leave it empty and nothing starts: `entrypoint.sh` refuses to run
+   `x11vnc`/`websockify` without a password, so there's no unauthenticated VNC server by
+   default.
+2. `python setup.py --start` (or restart just `backend` after editing `.env`).
+3. Open `http://127.0.0.1:${BACKEND_VNC_PORT:-6080}/vnc.html` in a browser (no VNC client
+   needed) and enter the password. The port is only published on the host's loopback
+   interface — if `docker compose` runs on a remote machine, reach it through an SSH tunnel
+   (same pattern as [Remote VS Code](#remote-vs-code) above), not by exposing it directly.
+
+Once a project is imported this way, `jdt`/`jdtbridge` picks it up immediately — the import
+step and the CLI share the same running Eclipse instance and workspace
+(`backend-eclipse-workspace` volume).
+
+**What you will and won't see live**: the agent doesn't type inside Eclipse's editor — it
+writes files directly under `/workspace` with its own tools. Eclipse only reflects those
+changes once refreshed (`jdt refresh`, or its own file-watcher if enabled), so noVNC shows
+you the current indexed/compiled/debug state, not a live keystroke-by-keystroke view. For
+watching the agent's own terminal in real time, use `python setup.py --tmux backend` instead.
 
 ## Plugins/packages per agent
 

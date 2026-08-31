@@ -41,6 +41,15 @@ ECLIPSE_DISPLAY=":99"
 ECLIPSE_PID=""
 XVFB_PID=""
 
+# Acceso remoto al Eclipse de arriba (mismo Xvfb, sin display propio): x11vnc sirve ese
+# framebuffer por VNC en localhost:5900, y websockify lo reexpone por HTTP/WS en :6080 con
+# los assets estáticos de noVNC (apt: paquete `novnc`), para entrar desde el navegador a
+# http://<host>:<puerto-mapeado>/vnc.html sin cliente VNC nativo. Solo arranca si hay
+# VNC_PASSWORD (ver docker-compose.yml/.env.example) — sin contraseña, mejor no exponer nada.
+VNC_PASSWD_FILE="/root/.vnc/passwd"
+X11VNC_PID=""
+WEBSOCKIFY_PID=""
+
 start_broker() {
   /usr/local/bin/pi-link-broker.sh &
   BROKER_PID=$!
@@ -63,17 +72,36 @@ start_eclipse() {
   ECLIPSE_PID=$!
 }
 
+start_vnc() {
+  [ -x "$ECLIPSE_BIN" ] || return 0
+  if [ -z "${VNC_PASSWORD:-}" ]; then
+    echo "[entrypoint] VNC_PASSWORD no definida, no se expone acceso VNC/noVNC a Eclipse"
+    return 0
+  fi
+  mkdir -p "$(dirname "$VNC_PASSWD_FILE")"
+  x11vnc -storepasswd "$VNC_PASSWORD" "$VNC_PASSWD_FILE" >/dev/null
+  x11vnc -display "$ECLIPSE_DISPLAY" -rfbauth "$VNC_PASSWD_FILE" -rfbport 5900 \
+    -forever -shared -noxdamage -quiet &
+  X11VNC_PID=$!
+  websockify --web=/usr/share/novnc 6080 localhost:5900 &
+  WEBSOCKIFY_PID=$!
+  echo "[entrypoint] noVNC listo en el puerto interno 6080 -> http://.../vnc.html (mapeo real en docker-compose.yml)"
+}
+
 term_handler() {
   tmux kill-session -t "$SESSION" 2>/dev/null || true
   [ -n "$BROKER_PID" ] && kill "$BROKER_PID" 2>/dev/null || true
   [ -n "$ECLIPSE_PID" ] && kill "$ECLIPSE_PID" 2>/dev/null || true
   [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null || true
+  [ -n "$X11VNC_PID" ] && kill "$X11VNC_PID" 2>/dev/null || true
+  [ -n "$WEBSOCKIFY_PID" ] && kill "$WEBSOCKIFY_PID" 2>/dev/null || true
   exit 0
 }
 trap term_handler SIGTERM SIGINT
 
 start_broker
 start_eclipse
+start_vnc
 
 # Esperamos (con timeout corto) a que el broker resuelva si este contenedor es hub o spoke
 # antes de arrancar pi, para minimizar la ventana de carrera en el primer arranque conjunto.
@@ -86,7 +114,8 @@ if ! tmux has-session -t "$SESSION" 2>/dev/null; then
   start_session "$@"
 fi
 
-# Watchdog: si el broker, la sesión tmux, o (en backend) Eclipse/Xvfb mueren, se relanzan solos.
+# Watchdog: si el broker, la sesión tmux, o (en backend) Eclipse/Xvfb/x11vnc/websockify
+# mueren, se relanzan solos.
 while true; do
   if ! kill -0 "$BROKER_PID" 2>/dev/null; then
     echo "[entrypoint] broker pi-link caido, relanzando..."
@@ -99,6 +128,12 @@ while true; do
   if [ -x "$ECLIPSE_BIN" ] && { [ -z "$ECLIPSE_PID" ] || ! kill -0 "$ECLIPSE_PID" 2>/dev/null; }; then
     echo "[entrypoint] eclipse (jdtbridge) caido, relanzando..."
     start_eclipse
+  fi
+  if [ -x "$ECLIPSE_BIN" ] && [ -n "${VNC_PASSWORD:-}" ] \
+     && { [ -z "$X11VNC_PID" ] || ! kill -0 "$X11VNC_PID" 2>/dev/null \
+          || [ -z "$WEBSOCKIFY_PID" ] || ! kill -0 "$WEBSOCKIFY_PID" 2>/dev/null; }; then
+    echo "[entrypoint] x11vnc/websockify caido, relanzando..."
+    start_vnc
   fi
   sleep 5 &
   wait $!

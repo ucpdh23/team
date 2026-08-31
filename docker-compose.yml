@@ -48,7 +48,12 @@ services:
       - GIT_TOKEN=${BACKEND_GIT_TOKEN:-}
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
+      - VNC_PASSWORD=${BACKEND_VNC_PASSWORD:-}
     command: ["--link-name", "backend"]
+    # Solo en loopback del host: si docker compose corre en una máquina remota, entra por
+    # túnel SSH (ver "Remote VS Code" en el README), no exponiendo este puerto a la red.
+    ports:
+      - "127.0.0.1:${BACKEND_VNC_PORT:-6080}:6080"
     volumes:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/backend:/workspace
