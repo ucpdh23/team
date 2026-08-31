@@ -38,7 +38,9 @@ start_broker() {
 
 start_session() {
   local quoted
-  quoted=$(printf '%q ' pi "$@")
+  # --approve: bypassea el prompt interactivo de "¿confías en este proyecto?" de pi, ya que
+  # aquí no hay ningún humano delante para responderlo en el primer arranque.
+  quoted=$(printf '%q ' pi --approve "$@")
   tmux new-session -d -s "$SESSION" -x 220 -y 50 "$quoted"
 }
 

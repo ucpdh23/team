@@ -16,11 +16,14 @@ services:
       context: .
       dockerfile: docker/Dockerfile.pi
     image: team-pi-manager
-    container_name: pi-manager
+    container_name: ${CONTAINER_PREFIX:-pi}-manager
     environment:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=manager
+      - REPO_URL=${MANAGER_REPO_URL:-}
+      - ADO_ORGANIZATION_URL
+      - ADO_PROJECT
     command: ["--link-name", "manager"]
     volumes:
       - pi-link-coord:/var/run/pi-link
@@ -35,11 +38,14 @@ services:
       context: .
       dockerfile: docker/Dockerfile.backend
     image: team-pi-backend
-    container_name: pi-backend
+    container_name: ${CONTAINER_PREFIX:-pi}-backend
     environment:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=backend
+      - REPO_URL=${BACKEND_REPO_URL:-}
+      - ADO_ORGANIZATION_URL
+      - ADO_PROJECT
     command: ["--link-name", "backend"]
     volumes:
       - pi-link-coord:/var/run/pi-link
@@ -55,11 +61,14 @@ services:
       context: .
       dockerfile: docker/Dockerfile.pi
     image: team-pi-frontend
-    container_name: pi-frontend
+    container_name: ${CONTAINER_PREFIX:-pi}-frontend
     environment:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=frontend
+      - REPO_URL=${FRONTEND_REPO_URL:-}
+      - ADO_ORGANIZATION_URL
+      - ADO_PROJECT
     command: ["--link-name", "frontend"]
     volumes:
       - pi-link-coord:/var/run/pi-link
@@ -74,11 +83,14 @@ services:
       context: .
       dockerfile: docker/Dockerfile.pi
     image: team-pi-devops
-    container_name: pi-devops
+    container_name: ${CONTAINER_PREFIX:-pi}-devops
     environment:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=devops
+      - REPO_URL=${DEVOPS_REPO_URL:-}
+      - ADO_ORGANIZATION_URL
+      - ADO_PROJECT
     command: ["--link-name", "devops"]
     volumes:
       - pi-link-coord:/var/run/pi-link
@@ -93,11 +105,14 @@ services:
       context: .
       dockerfile: docker/Dockerfile.cypress
     image: team-pi-cypress
-    container_name: pi-cypress
+    container_name: ${CONTAINER_PREFIX:-pi}-cypress
     environment:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=cypress
+      - REPO_URL=${CYPRESS_REPO_URL:-}
+      - ADO_ORGANIZATION_URL
+      - ADO_PROJECT
     command: ["--link-name", "cypress"]
     volumes:
       - pi-link-coord:/var/run/pi-link
@@ -107,11 +122,21 @@ services:
       - ./docs:/workspace/docs
       - cypress-pi-home:/root/.pi/agent
 
+# El nombre de referencia de cada volumen (la clave YAML) es fijo y es lo que usan los
+# servicios de arriba para citarlo; el nombre real del volumen en Docker (`name:`) sí usa
+# CONTAINER_PREFIX, con el mismo criterio que container_name. Compose no permite
+# interpolar variables en las propias claves de este bloque, solo en valores como `name:`.
 volumes:
   pi-link-coord:
+    name: ${CONTAINER_PREFIX:-pi}-link-coord
   manager-pi-home:
+    name: manager-${CONTAINER_PREFIX:-pi}-home
   backend-pi-home:
+    name: backend-${CONTAINER_PREFIX:-pi}-home
   backend-eclipse-workspace:
   frontend-pi-home:
+    name: frontend-${CONTAINER_PREFIX:-pi}-home
   devops-pi-home:
+    name: devops-${CONTAINER_PREFIX:-pi}-home
   cypress-pi-home:
+    name: cypress-${CONTAINER_PREFIX:-pi}-home

@@ -115,15 +115,29 @@ without any external script ever telling the `pi` process anything directly.
 ## Requirements
 
 - Docker and Docker Compose v2 (`docker compose ...`, not `docker-compose`).
+- Python 3 (stdlib only) to run `setup.py` — works the same on Windows and Linux.
 - A machine with internet access for the build (pulls the base Node/Cypress image and
   installs `pi` and `pi-link` via npm).
 
 ## Getting started
 
 ```bash
-cp .env.example .env   # fill in ANTHROPIC_API_KEY if you want, or leave it empty (see below)
+python setup.py --init   # interactively builds .env from .env.example (Enter keeps the default)
 docker compose up -d --build
 ```
+
+## Configuration (`.env`)
+
+`setup.py --init` walks through every variable in `.env.example`, proposing its value as
+the default (Enter accepts it); it writes the result to `.env` (backing up any existing one
+to `.env.bak` first). You can also skip it and copy/edit `.env.example` by hand. Variables:
+
+| Variable | Meaning |
+|---|---|
+| `ANTHROPIC_API_KEY` | Optional — see [Authentication](#authentication) below. |
+| `CONTAINER_PREFIX` | Prefix for the 5 container names (default `pi`, i.e. `pi-manager`, ...). Change it to run several instances of this project on the same machine without name clashes. |
+| `<ROLE>_REPO_URL` | Git remote (origin) URL for that role's real repository — SSH or HTTPS. Exposed inside each container as `REPO_URL`. Empty until each role's repo/stack is decided. |
+| `ADO_ORGANIZATION_URL`, `ADO_PROJECT` | Shared Azure DevOps organization/project (see `docs/work-procedures.md`). Exposed as-is inside every container, ready for `az devops configure --defaults organization=$ADO_ORGANIZATION_URL project=$ADO_PROJECT`. |
 
 To rebuild after changing any Dockerfile/script and pick up the changes without losing
 existing sessions or logins:
@@ -162,7 +176,8 @@ No special setup is needed in the images. If `docker compose` runs on a remote m
 an EC2 instance): connect with **Remote-SSH** to that machine using your normal SSH access
 to the instance, and once inside that remote window use the **Dev Containers → Attach to
 Running Container** extension — it will see that machine's local Docker daemon normally.
-Every container has a fixed `container_name` (`pi-manager`, `pi-backend`, ...) to make it
+Every container has a fixed `container_name` (`pi-manager`, `pi-backend`, ... — or
+`${CONTAINER_PREFIX}-manager`, etc. if you changed `CONTAINER_PREFIX` in `.env`) to make it
 easy to spot in the list.
 
 ## Plugins/packages per agent
