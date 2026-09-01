@@ -90,9 +90,13 @@ RUN chmod +x /usr/local/bin/jdtls
 # habla con él. A diferencia de jdt.ls de arriba, este SÍ necesita una instancia de Eclipse
 # real corriendo (por eso Xvfb) — no es un servidor LSP aislado.
 # Se instala en /opt/eclipse (ruta que la propia CLI de jdtbridge ya conoce por defecto, sin
-# necesidad de configurarla a mano) y se le añaden ahí mismo, headless vía p2 director, m2e
-# (soporte Maven en Eclipse, necesario para "jdt maven update") y la feature de jdtbridge,
-# tomando el ID de perfil p2 real que crea el propio instalador (no se asume un nombre fijo).
+# necesidad de configurarla a mano) y se le añade ahí mismo, headless vía p2 director, la
+# feature de jdtbridge, tomando el ID de perfil p2 real que crea el propio instalador (no se
+# asume un nombre fijo). M2E (soporte Maven, necesario para "jdt maven update") NO se instala
+# aparte: el paquete "Eclipse IDE for Java Developers" de este release train ya lo trae de
+# fábrica (versión fija, ligada a esa release); instalar además "m2e/releases/latest" (un
+# repo rodante) provoca un conflicto de p2 en cuanto "latest" deja de coincidir con la versión
+# bundleada (dependencias incompatibles de org.eclipse.m2e.launching entre ambas).
 RUN curl -fsSL "https://download.eclipse.org/technology/epp/downloads/release/2026-06/R/eclipse-java-2026-06-R-linux-gtk-x86_64.tar.gz" -o /tmp/eclipse.tar.gz \
   && tar -xzf /tmp/eclipse.tar.gz -C /opt \
   && rm /tmp/eclipse.tar.gz
@@ -102,8 +106,9 @@ RUN ECLIPSE_PROFILE=$(basename "$(ls -d /opt/eclipse/p2/org.eclipse.equinox.p2.e
   && echo "[eclipse] perfil p2 detectado: $ECLIPSE_PROFILE" \
   && xvfb-run -a /opt/eclipse/eclipse -nosplash \
        -application org.eclipse.equinox.p2.director \
-       -repository "https://download.eclipse.org/technology/m2e/releases/latest/,https://kaluchi.github.io/jdtbridge/" \
-       -installIU "org.eclipse.m2e.feature.feature.group,io.github.kaluchi.jdtbridge.feature.feature.group" \
+       -consoleLog \
+       -repository "https://kaluchi.github.io/jdtbridge/" \
+       -installIU "io.github.kaluchi.jdtbridge.feature.feature.group" \
        -destination /opt/eclipse \
        -profile "$ECLIPSE_PROFILE"
 
