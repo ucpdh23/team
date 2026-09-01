@@ -105,10 +105,13 @@ without any external script ever telling the `pi` process anything directly.
 ├── agents/
 │   └── <role>/
 │       ├── AGENTS.md           # team context, mounted at ~/.pi/agent/AGENTS.md (global for pi)
-│       └── pi/                 # mounted at /workspace/.pi in the container
-│           └── extensions/     # local pi extensions specific to this role
+│       └── pi/
+│           └── extensions/     # mounted at ~/.pi/agent/extensions in the container — global
+│                                # pi extensions specific to this role (see "Plugins/packages
+│                                # per agent" below)
 └── workspace/
     └── <role>/                  # source code for that role, mounted at /workspace in the container —
+                                  # kept 100% free of infra files: `git clone $REPO_URL .` here
         └── workitems/           # kept as empty of infra files as possible; created by the agent
                                   # itself inside its own project (private to this role, not shared —
                                   # see docs/work-procedures.md)
@@ -140,7 +143,7 @@ to `.env.bak` first). You can also skip it and copy/edit `.env.example` by hand.
 |---|---|
 | `ANTHROPIC_API_KEY` | Optional — see [Authentication](#authentication) below. |
 | `CONTAINER_PREFIX` | Prefix for the 5 container names (default `pi`, i.e. `pi-manager`, ...). Change it to run several instances of this project on the same machine without name clashes. |
-| `<ROLE>_REPO_URL` | Git remote (origin) URL for that role's real repository — SSH or HTTPS. Exposed inside each container as `REPO_URL`. Empty until each role's repo/stack is decided. |
+| `<ROLE>_REPO_URL` | Git remote (origin) URL for that role's real repository — SSH or HTTPS. Exposed inside each container as `REPO_URL`. Empty until each role's repo/stack is decided. `workspace/<role>/` (mounted at `/workspace`) is kept 100% free of infra files for this: `git clone $REPO_URL .` there (or let the agent do it) without worrying about clashing with anything this project mounts — pi's own per-role state (`AGENTS.md`, extensions, login) lives entirely under `~/.pi/agent` instead, never under `/workspace`. |
 | `<ROLE>_GIT_TOKEN` | Access token (PAT) for that role's `REPO_URL` when it's `https://` — scope it to just that one repo (GitHub fine-grained PAT, or an Azure DevOps PAT limited to `Code: Read & Write`). Exposed inside each container as `GIT_TOKEN`; `entrypoint.sh` wires it into a git credential helper that reads it from the environment at auth time, so it's never written to the remote URL or `.git/config`. Leave it empty and use an SSH `REPO_URL` instead if you'd rather set up SSH manually for a given role — the two don't conflict. |
 | `ADO_ORGANIZATION_URL`, `ADO_PROJECT` | Shared Azure DevOps organization/project (see `docs/work-procedures.md`). Exposed as-is inside every container, ready for `az devops configure --defaults organization=$ADO_ORGANIZATION_URL project=$ADO_PROJECT`. |
 | `BACKEND_VNC_PASSWORD`, `BACKEND_VNC_PORT`, `BACKEND_VNC_BIND` | VNC/noVNC access to the `backend` container's headless Eclipse (see [Eclipse GUI access](#eclipse-gui-access-backend-via-novnc) below). Empty password = VNC disabled (default). Port defaults to `6080`; bind defaults to `127.0.0.1` (set to `0.0.0.0` if running Docker inside WSL2). |
@@ -247,10 +250,14 @@ watching the agent's own terminal in real time, use `python setup.py --tmux back
 
 Each service in `docker-compose.yml` has its own `PI_PACKAGES` variable (extra pi packages
 installed via `pi install npm:...` / `git:...`, space-separated) and its own
-`agents/<role>/pi/` folder, mounted at `/workspace/.pi` in the container (local project
-extensions live under `agents/<role>/pi/extensions/`; other `.pi` configuration can go
-alongside it as needed). `pi-link` and `pi-cost-counter` (see below) are installed on all 5
-by `entrypoint.sh` since they're shared infrastructure, not per-role choices; the rest of
+`agents/<role>/pi/extensions/` folder, mounted at `~/.pi/agent/extensions` in the
+container — global pi extensions for that role (not project-local: the same `~/.pi/agent`
+named volume already holds that role's `AGENTS.md`, login and settings, so this is one more
+file bind-mounted inside it, same pattern). `PI_PACKAGES` and this folder cover different
+needs: `PI_PACKAGES` installs published packages by name/URL, this folder is for extensions
+that live only in this repo and aren't published anywhere. `pi-link` and `pi-cost-counter`
+(see below) are installed on all 5 by `entrypoint.sh` since they're shared infrastructure,
+not per-role choices; the rest of
 each role's plugins/skills are managed independently via `PI_PACKAGES`.
 
 ## LLM cost tracking

@@ -29,10 +29,10 @@ services:
     volumes:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/manager:/workspace
-      - ./agents/manager/pi:/workspace/.pi
       - ./docs:/docs
       - manager-pi-home:/root/.pi/agent
       - ./agents/manager/AGENTS.md:/root/.pi/agent/AGENTS.md
+      - ./agents/manager/pi/extensions:/root/.pi/agent/extensions
       - ./cost-tracking/manager:/root/.pi/cost-tracker
 
   backend:
@@ -61,10 +61,10 @@ services:
     volumes:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/backend:/workspace
-      - ./agents/backend/pi:/workspace/.pi
       - ./docs:/docs
       - backend-pi-home:/root/.pi/agent
       - ./agents/backend/AGENTS.md:/root/.pi/agent/AGENTS.md
+      - ./agents/backend/pi/extensions:/root/.pi/agent/extensions
       - ./cost-tracking/backend:/root/.pi/cost-tracker
       - backend-eclipse-workspace:/root/eclipse-workspace
 
@@ -86,10 +86,10 @@ services:
     volumes:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/frontend:/workspace
-      - ./agents/frontend/pi:/workspace/.pi
       - ./docs:/docs
       - frontend-pi-home:/root/.pi/agent
       - ./agents/frontend/AGENTS.md:/root/.pi/agent/AGENTS.md
+      - ./agents/frontend/pi/extensions:/root/.pi/agent/extensions
       - ./cost-tracking/frontend:/root/.pi/cost-tracker
 
   devops:
@@ -110,10 +110,10 @@ services:
     volumes:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/devops:/workspace
-      - ./agents/devops/pi:/workspace/.pi
       - ./docs:/docs
       - devops-pi-home:/root/.pi/agent
       - ./agents/devops/AGENTS.md:/root/.pi/agent/AGENTS.md
+      - ./agents/devops/pi/extensions:/root/.pi/agent/extensions
       - ./cost-tracking/devops:/root/.pi/cost-tracker
 
   cypress:
@@ -134,10 +134,10 @@ services:
     volumes:
       - pi-link-coord:/var/run/pi-link
       - ./workspace/cypress:/workspace
-      - ./agents/cypress/pi:/workspace/.pi
       - ./docs:/docs
       - cypress-pi-home:/root/.pi/agent
       - ./agents/cypress/AGENTS.md:/root/.pi/agent/AGENTS.md
+      - ./agents/cypress/pi/extensions:/root/.pi/agent/extensions
       - ./cost-tracking/cypress:/root/.pi/cost-tracker
 
 # El nombre de referencia de cada volumen (la clave YAML) es fijo y es lo que usan los
