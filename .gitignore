@@ -4,11 +4,10 @@
 # Estado local de Claude Code
 .claude/settings.local.json
 
-# Código de cada rol montado en workspace/<rol>: vive en su propio repo externo (REPO_URL en
-# .env), no en este — y de paso evita versionar por accidente los mount-points que Docker
-# materializa ahí en tiempo de ejecución (.pi/, y hasta ahora AGENTS.md/docs, ya reubicados).
-workspace/*/*
-!workspace/*/.gitkeep
+# Carpeta workspace/ ya no existe en este repo: el código de cada rol vive en un volumen
+# Docker nombrado (<rol>-workspace, ver docker-compose.yml), no en un bind mount a una carpeta
+# de este repositorio — así /workspace dentro de cada contenedor nace siempre vacío y nunca
+# hay artefactos de mount-point que versionar por accidente.
 
 # Datos reales de coste de cada agente (pi-cost-counter, ver docker-compose.yml) — cambian en
 # cada ejecución, no son código.

@@ -29,7 +29,7 @@ services:
     command: ["--link-name", "manager"]
     volumes:
       - pi-link-coord:/var/run/pi-link
-      - ./workspace/manager:/workspace
+      - manager-workspace:/workspace
       - ./docs:/docs
       - manager-pi-home:/root/.pi/agent
       - ./agents/manager/AGENTS.md:/root/.pi/agent/AGENTS.md
@@ -62,7 +62,7 @@ services:
       - "${BACKEND_VNC_BIND:-127.0.0.1}:${BACKEND_VNC_PORT:-6080}:6080"
     volumes:
       - pi-link-coord:/var/run/pi-link
-      - ./workspace/backend:/workspace
+      - backend-workspace:/workspace
       - ./docs:/docs
       - backend-pi-home:/root/.pi/agent
       - ./agents/backend/AGENTS.md:/root/.pi/agent/AGENTS.md
@@ -88,7 +88,7 @@ services:
     command: ["--link-name", "frontend"]
     volumes:
       - pi-link-coord:/var/run/pi-link
-      - ./workspace/frontend:/workspace
+      - frontend-workspace:/workspace
       - ./docs:/docs
       - frontend-pi-home:/root/.pi/agent
       - ./agents/frontend/AGENTS.md:/root/.pi/agent/AGENTS.md
@@ -113,7 +113,7 @@ services:
     command: ["--link-name", "devops"]
     volumes:
       - pi-link-coord:/var/run/pi-link
-      - ./workspace/devops:/workspace
+      - devops-workspace:/workspace
       - ./docs:/docs
       - devops-pi-home:/root/.pi/agent
       - ./agents/devops/AGENTS.md:/root/.pi/agent/AGENTS.md
@@ -138,7 +138,7 @@ services:
     command: ["--link-name", "cypress"]
     volumes:
       - pi-link-coord:/var/run/pi-link
-      - ./workspace/cypress:/workspace
+      - cypress-workspace:/workspace
       - ./docs:/docs
       - cypress-pi-home:/root/.pi/agent
       - ./agents/cypress/AGENTS.md:/root/.pi/agent/AGENTS.md
@@ -154,12 +154,22 @@ volumes:
     name: ${CONTAINER_PREFIX:-pi}-link-coord
   manager-pi-home:
     name: manager-${CONTAINER_PREFIX:-pi}-home
+  manager-workspace:
+    name: manager-${CONTAINER_PREFIX:-pi}-workspace
   backend-pi-home:
     name: backend-${CONTAINER_PREFIX:-pi}-home
+  backend-workspace:
+    name: backend-${CONTAINER_PREFIX:-pi}-workspace
   backend-eclipse-workspace:
   frontend-pi-home:
     name: frontend-${CONTAINER_PREFIX:-pi}-home
+  frontend-workspace:
+    name: frontend-${CONTAINER_PREFIX:-pi}-workspace
   devops-pi-home:
     name: devops-${CONTAINER_PREFIX:-pi}-home
+  devops-workspace:
+    name: devops-${CONTAINER_PREFIX:-pi}-workspace
   cypress-pi-home:
     name: cypress-${CONTAINER_PREFIX:-pi}-home
+  cypress-workspace:
+    name: cypress-${CONTAINER_PREFIX:-pi}-workspace

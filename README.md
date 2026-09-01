@@ -109,13 +109,13 @@ without any external script ever telling the `pi` process anything directly.
 │           └── extensions/     # mounted at ~/.pi/agent/extensions in the container — global
 │                                # pi extensions specific to this role (see "Plugins/packages
 │                                # per agent" below)
-└── workspace/
-    └── <role>/                  # source code for that role, mounted at /workspace in the container —
-                                  # kept 100% free of infra files: `git clone $REPO_URL .` here
-        └── workitems/           # kept as empty of infra files as possible; created by the agent
-                                  # itself inside its own project (private to this role, not shared —
-                                  # see docs/work-procedures.md)
 ```
+
+There's no `workspace/` folder in this repo: `/workspace` inside each container is a named Docker
+volume (`<role>-workspace`), not a bind mount to anything here — so it's guaranteed empty on first
+run, with nothing of this project's ever leaking into it. `git clone $REPO_URL .` there (or let the
+agent do it); the agent's own `workitems/` folder (see `docs/work-procedures.md`) ends up inside
+that same volume, private to this role.
 
 `<role>` is one of: `manager`, `backend`, `frontend`, `devops`, `cypress`.
 
@@ -129,8 +129,9 @@ without any external script ever telling the `pi` process anything directly.
 ## Getting started
 
 ```bash
-python setup.py --init    # interactively builds .env from .env.example (Enter keeps the default)
-python setup.py --start   # docker compose up -d --build
+python setup.py --init      # interactively builds .env from .env.example (Enter keeps the default)
+python setup.py --start     # docker compose up -d --build
+python setup.py --git-clone # git clone each role's REPO_URL into its /workspace, if set
 ```
 
 ## Configuration (`.env`)
@@ -143,7 +144,7 @@ to `.env.bak` first). You can also skip it and copy/edit `.env.example` by hand.
 |---|---|
 | `ANTHROPIC_API_KEY` | Optional — see [Authentication](#authentication) below. |
 | `CONTAINER_PREFIX` | Prefix for the 5 container names (default `pi`, i.e. `pi-manager`, ...). Change it to run several instances of this project on the same machine without name clashes. |
-| `<ROLE>_REPO_URL` | Git remote (origin) URL for that role's real repository — SSH or HTTPS. Exposed inside each container as `REPO_URL`. Empty until each role's repo/stack is decided. `workspace/<role>/` (mounted at `/workspace`) is kept 100% free of infra files for this: `git clone $REPO_URL .` there (or let the agent do it) without worrying about clashing with anything this project mounts — pi's own per-role state (`AGENTS.md`, extensions, login) lives entirely under `~/.pi/agent` instead, never under `/workspace`. |
+| `<ROLE>_REPO_URL` | Git remote (origin) URL for that role's real repository — SSH or HTTPS. Exposed inside each container as `REPO_URL`. Empty until each role's repo/stack is decided. `/workspace` is a named Docker volume (`<role>-workspace`), not a bind mount to this repo, so it's always empty on first run: `python setup.py --git-clone` clones it there for every role that has one set (or let the agent do it itself) without worrying about clashing with anything this project mounts — pi's own per-role state (`AGENTS.md`, extensions, login) lives entirely under `~/.pi/agent` instead, never under `/workspace`. |
 | `<ROLE>_GIT_TOKEN` | Access token (PAT) for that role's `REPO_URL` when it's `https://` — scope it to just that one repo (GitHub fine-grained PAT, or an Azure DevOps PAT limited to `Code: Read & Write`). Exposed inside each container as `GIT_TOKEN`; `entrypoint.sh` wires it into a git credential helper that reads it from the environment at auth time, so it's never written to the remote URL or `.git/config`. Leave it empty and use an SSH `REPO_URL` instead if you'd rather set up SSH manually for a given role — the two don't conflict. |
 | `ADO_ORGANIZATION_URL`, `ADO_PROJECT` | Shared Azure DevOps organization/project (see `docs/work-procedures.md`). Exposed as-is inside every container; `entrypoint.sh` runs `az devops configure --defaults organization=$ADO_ORGANIZATION_URL project=$ADO_PROJECT` automatically on every start, so `az boards`/`az repos` commands don't need `--organization`/`--project` in that role's session. |
 | `<ROLE>_ADO_PAT` | Azure DevOps PAT for that role, used by `az boards`/`az repos` inside its container — see [Azure DevOps CLI authentication](#azure-devops-cli-authentication) below for exactly which scopes each role needs. Exposed inside each container as `ADO_PAT`; `entrypoint.sh` maps it to `AZURE_DEVOPS_EXT_PAT`, the environment variable az CLI's `azure-devops` extension reads automatically — no `az devops login` needed, and it's never written to disk. |

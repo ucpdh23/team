@@ -91,6 +91,24 @@ def cmd_init(args) -> int:
     return 0
 
 
+def read_env_file() -> dict[str, str]:
+    """Lee .env (no .env.example) y devuelve un dict clave->valor, ya sin comillas
+    envolventes si las hubiera (las que añade `quote_if_needed` en --init)."""
+    if not ENV_FILE.exists():
+        return {}
+    values: dict[str, str] = {}
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _, value = stripped.partition("=")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        values[key.strip()] = value
+    return values
+
+
 def run_docker(*args) -> int:
     cmd = ["docker", *args]
     print(f"[setup] ejecutando: {' '.join(cmd)}")
@@ -173,6 +191,68 @@ def cmd_bash(args) -> int:
     return run_docker("exec", "-it", container, "bash")
 
 
+def workspace_has_content(container: str) -> bool | None:
+    """True/False si se pudo comprobar si /workspace tiene algo dentro; None si docker
+    no está disponible o el exec falló (contenedor no arrancado del todo, etc.)."""
+    try:
+        result = subprocess.run(
+            ["docker", "exec", container, "sh", "-c", "[ -z \"$(ls -A /workspace 2>/dev/null)\" ]"],
+            capture_output=True,
+        )
+    except FileNotFoundError:
+        print(
+            "No se encuentra el comando 'docker' en el PATH. Instala Docker Desktop "
+            "(Windows/macOS) o Docker Engine + Compose plugin (Linux).",
+            file=sys.stderr,
+        )
+        return None
+    if result.returncode not in (0, 1):
+        print(result.stderr.decode(errors="replace").strip(), file=sys.stderr)
+        return None
+    return result.returncode == 1  # el "[ -z ... ]" devuelve 1 cuando SÍ hay contenido
+
+
+def cmd_git_clone(args) -> int:
+    if not ENV_FILE.exists():
+        print(
+            f"No existe {ENV_FILE.name}. Ejecuta antes 'python setup.py --init'.",
+            file=sys.stderr,
+        )
+        return 1
+
+    env_values = read_env_file()
+    exit_code = 0
+    any_role = False
+
+    for role in ROLES:
+        repo_url = env_values.get(f"{role.upper()}_REPO_URL", "").strip()
+        if not repo_url:
+            continue
+        any_role = True
+
+        container = resolve_container(role)
+        if container is None:
+            exit_code = 1
+            continue
+
+        has_content = workspace_has_content(container)
+        if has_content is None:
+            exit_code = 1
+            continue
+        if has_content:
+            print(f"[setup] {role}: /workspace ya tiene contenido, se omite (¿ya clonado?).")
+            continue
+
+        print(f"[setup] {role}: git clone {repo_url} . (en /workspace)")
+        rc = run_docker("exec", "-w", "/workspace", container, "git", "clone", repo_url, ".")
+        if rc != 0:
+            exit_code = rc
+
+    if not any_role:
+        print("Ningún rol tiene <ROL>_REPO_URL definido en .env; nada que clonar.")
+    return exit_code
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="setup.py",
@@ -221,6 +301,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=ROLES,
         help="Abre una shell bash interactiva dentro del contenedor de ese rol.",
     )
+    parser.add_argument(
+        "--git-clone",
+        action="store_true",
+        help="Para cada rol con <ROL>_REPO_URL definido en .env, hace 'git clone $REPO_URL .' "
+        "dentro de /workspace en su contenedor (requiere que esté arrancado). Si /workspace "
+        "ya tiene contenido para ese rol, lo omite en vez de fallar.",
+    )
     return parser
 
 
@@ -240,6 +327,8 @@ def main(argv=None) -> int:
         return cmd_logs(args)
     if args.bash:
         return cmd_bash(args)
+    if args.git_clone:
+        return cmd_git_clone(args)
 
     parser.print_help()
     return 0
