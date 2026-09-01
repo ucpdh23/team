@@ -22,6 +22,23 @@ if [ -n "${GIT_TOKEN:-}" ]; then
   git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=$GIT_TOKEN"; }; f'
 fi
 
+# PAT de Azure DevOps para este rol (ver .env.example): la extensión azure-devops de az CLI
+# lo lee automáticamente de AZURE_DEVOPS_EXT_PAT para autenticar az boards/az repos, sin
+# necesitar `az devops login` interactivo. No se persiste en ningún fichero de
+# configuración, solo vive en el entorno del proceso (igual que GIT_TOKEN arriba).
+if [ -n "${ADO_PAT:-}" ]; then
+  echo "[entrypoint] configurando az devops (ADO_PAT presente)"
+  export AZURE_DEVOPS_EXT_PAT="$ADO_PAT"
+fi
+
+# Defaults de organización/proyecto para no repetir --organization/--project en cada comando
+# az boards/az repos (ver README). Idempotente y barato: se re-ejecuta en cada arranque
+# porque ~/.azure no está en un volumen persistente.
+if [ -n "${ADO_ORGANIZATION_URL:-}" ] && [ -n "${ADO_PROJECT:-}" ]; then
+  az devops configure --defaults organization="$ADO_ORGANIZATION_URL" project="$ADO_PROJECT" \
+    >/dev/null 2>&1 || true
+fi
+
 # pi corre dentro de una sesión tmux persistente en vez de como proceso en primer plano:
 # así la sesión sigue viva aunque nadie esté conectado, y te enganchas cuando quieras con
 #   docker exec -it <contenedor> tmux attach -t pi

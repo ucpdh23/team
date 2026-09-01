@@ -15,6 +15,12 @@ TMUX_VER=$(tmux -V | awk '{print $2}')
   echo 'set -g default-terminal "tmux-256color"'
   echo 'set -ag terminal-overrides ",*:RGB"'
   echo 'set -g extended-keys on'
+  # Scroll del raton sin entrar en copy-mode a mano: con "mouse on" tmux entra/sale de
+  # copy-mode el solo al detectar la rueda, y reenvia clicks/drag normales al programa de
+  # dentro (pi) cuando este los soporta. Contrapartida conocida: seleccionar texto con el
+  # raton para copiarlo pasa a necesitar Shift+drag en la mayoria de emuladores de terminal,
+  # porque tmux intercepta el click normal para su propio uso.
+  echo 'set -g mouse on'
 } > "$CONF"
 
 if dpkg --compare-versions "$TMUX_VER" ge "3.5" 2>/dev/null; then

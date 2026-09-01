@@ -145,7 +145,8 @@ to `.env.bak` first). You can also skip it and copy/edit `.env.example` by hand.
 | `CONTAINER_PREFIX` | Prefix for the 5 container names (default `pi`, i.e. `pi-manager`, ...). Change it to run several instances of this project on the same machine without name clashes. |
 | `<ROLE>_REPO_URL` | Git remote (origin) URL for that role's real repository — SSH or HTTPS. Exposed inside each container as `REPO_URL`. Empty until each role's repo/stack is decided. `workspace/<role>/` (mounted at `/workspace`) is kept 100% free of infra files for this: `git clone $REPO_URL .` there (or let the agent do it) without worrying about clashing with anything this project mounts — pi's own per-role state (`AGENTS.md`, extensions, login) lives entirely under `~/.pi/agent` instead, never under `/workspace`. |
 | `<ROLE>_GIT_TOKEN` | Access token (PAT) for that role's `REPO_URL` when it's `https://` — scope it to just that one repo (GitHub fine-grained PAT, or an Azure DevOps PAT limited to `Code: Read & Write`). Exposed inside each container as `GIT_TOKEN`; `entrypoint.sh` wires it into a git credential helper that reads it from the environment at auth time, so it's never written to the remote URL or `.git/config`. Leave it empty and use an SSH `REPO_URL` instead if you'd rather set up SSH manually for a given role — the two don't conflict. |
-| `ADO_ORGANIZATION_URL`, `ADO_PROJECT` | Shared Azure DevOps organization/project (see `docs/work-procedures.md`). Exposed as-is inside every container, ready for `az devops configure --defaults organization=$ADO_ORGANIZATION_URL project=$ADO_PROJECT`. |
+| `ADO_ORGANIZATION_URL`, `ADO_PROJECT` | Shared Azure DevOps organization/project (see `docs/work-procedures.md`). Exposed as-is inside every container; `entrypoint.sh` runs `az devops configure --defaults organization=$ADO_ORGANIZATION_URL project=$ADO_PROJECT` automatically on every start, so `az boards`/`az repos` commands don't need `--organization`/`--project` in that role's session. |
+| `<ROLE>_ADO_PAT` | Azure DevOps PAT for that role, used by `az boards`/`az repos` inside its container — see [Azure DevOps CLI authentication](#azure-devops-cli-authentication) below for exactly which scopes each role needs. Exposed inside each container as `ADO_PAT`; `entrypoint.sh` maps it to `AZURE_DEVOPS_EXT_PAT`, the environment variable az CLI's `azure-devops` extension reads automatically — no `az devops login` needed, and it's never written to disk. |
 | `BACKEND_VNC_PASSWORD`, `BACKEND_VNC_PORT`, `BACKEND_VNC_BIND` | VNC/noVNC access to the `backend` container's headless Eclipse (see [Eclipse GUI access](#eclipse-gui-access-backend-via-novnc) below). Empty password = VNC disabled (default). Port defaults to `6080`; bind defaults to `127.0.0.1` (set to `0.0.0.0` if running Docker inside WSL2). |
 
 To rebuild after changing any Dockerfile/script and pick up the changes without losing
@@ -171,6 +172,30 @@ python setup.py --stop   # same as docker compose down
 you connect to each agent's session you run `/login` interactively and pick whichever
 provider you want; it's persisted in that agent's volume (`/root/.pi/agent`), so it's only
 needed once per container.
+
+## Azure DevOps CLI authentication
+
+Each role authenticates its own `az boards`/`az repos` calls with its own PAT
+(`<ROLE>_ADO_PAT` in `.env`, see [Configuration](#configuration-env) above) — same pattern as
+git: `entrypoint.sh` exposes it to az CLI via `AZURE_DEVOPS_EXT_PAT`, so there's no
+interactive `az devops login` and nothing is written to disk. All five get their own
+variable even though, in practice, you may hand out the same PAT to more than one role
+to start with — keeping them separate from day one costs nothing and means you can later
+scope, rotate or revoke one role's access without touching the others.
+
+Scopes are entirely up to you (Azure DevOps PATs are created and managed outside this
+repo, in your own organization), but here's the minimum each role actually needs, based on
+what it does per `docs/work-procedures.md` and its own `agents/<role>/AGENTS.md`:
+
+| Role | Minimum PAT scope | Why |
+|---|---|---|
+| `manager` | **Work Items** — Read, Write, & Manage | Creates/links Tasks (`az boards work-item create`, `relation add`), moves the parent User Story/Bug through states, posts comments. Never opens PRs itself, so no Code scope needed. |
+| `backend`, `frontend`, `devops` | **Work Items** — Read & Write | Moves its own Task(s) to Active/Closed as it works. Add **Code** — Read & Write only if that role's `REPO_URL` points at **Azure Repos** and it uses `az repos pr create` to open its PR (see the worked example in `docs/work-procedures.md`); not needed if that role's repo lives on GitHub (opens PRs with `gh` instead, already installed). |
+| `cypress` | **Work Items** — Read & Write | Same as above, only if it keeps its own e2e Task in ADO (optional, see `agents/cypress/AGENTS.md`) — otherwise this PAT can be left empty. |
+
+If a role's repo is on GitHub rather than Azure Repos, that role doesn't need Azure DevOps
+Code access at all — its `<ROLE>_GIT_TOKEN` (a GitHub fine-grained PAT, see above) already
+covers pushing code and opening PRs there via `gh`.
 
 ## Connecting to an agent
 
@@ -292,6 +317,13 @@ rather than `/workspace/docs`, so `/workspace` stays free for the role's actual 
 `/etc/tmux.conf` at build time with `default-terminal tmux-256color` + `terminal-overrides
 ",*:RGB"` to negotiate truecolor correctly. If it persists, the *client* terminal you're
 running `python setup.py --tmux <role>` from is likely not advertising truecolor support.
+
+**Mouse wheel scrolling in tmux** — `/etc/tmux.conf` also sets `mouse on`, so scrolling up
+with the wheel enters tmux's copy-mode automatically and scrolls the pane's history;
+scrolling back down to the bottom exits copy-mode on its own, no `Ctrl-b [`/`q` needed.
+Trade-off: selecting text with the mouse to copy it now needs **Shift+drag** in most
+terminal emulators instead of a plain drag, since tmux itself intercepts plain mouse clicks
+for its own use (pane focus, drag-to-resize, etc.) once mouse mode is on.
 
 **An agent doesn't show up on pi-link / `link_list` doesn't see it** — check in order:
 

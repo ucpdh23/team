@@ -19,10 +19,11 @@ services:
     container_name: ${CONTAINER_PREFIX:-pi}-manager
     environment:
       - ANTHROPIC_API_KEY
-      - PI_PACKAGES=
+      - PI_PACKAGES=npm:pi-schedule-prompt
       - PI_LINK_SELF=manager
       - REPO_URL=${MANAGER_REPO_URL:-}
       - GIT_TOKEN=${MANAGER_GIT_TOKEN:-}
+      - ADO_PAT=${MANAGER_ADO_PAT:-}
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
     command: ["--link-name", "manager"]
@@ -47,6 +48,7 @@ services:
       - PI_LINK_SELF=backend
       - REPO_URL=${BACKEND_REPO_URL:-}
       - GIT_TOKEN=${BACKEND_GIT_TOKEN:-}
+      - ADO_PAT=${BACKEND_ADO_PAT:-}
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
       - VNC_PASSWORD=${BACKEND_VNC_PASSWORD:-}
@@ -80,6 +82,7 @@ services:
       - PI_LINK_SELF=frontend
       - REPO_URL=${FRONTEND_REPO_URL:-}
       - GIT_TOKEN=${FRONTEND_GIT_TOKEN:-}
+      - ADO_PAT=${FRONTEND_ADO_PAT:-}
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
     command: ["--link-name", "frontend"]
@@ -104,6 +107,7 @@ services:
       - PI_LINK_SELF=devops
       - REPO_URL=${DEVOPS_REPO_URL:-}
       - GIT_TOKEN=${DEVOPS_GIT_TOKEN:-}
+      - ADO_PAT=${DEVOPS_ADO_PAT:-}
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
     command: ["--link-name", "devops"]
@@ -128,6 +132,7 @@ services:
       - PI_LINK_SELF=cypress
       - REPO_URL=${CYPRESS_REPO_URL:-}
       - GIT_TOKEN=${CYPRESS_GIT_TOKEN:-}
+      - ADO_PAT=${CYPRESS_ADO_PAT:-}
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
     command: ["--link-name", "cypress"]
