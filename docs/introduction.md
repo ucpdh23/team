@@ -33,7 +33,8 @@ infrastructure, and someone verifies that everything actually works together end
 None of the five is a network-level "master" — they're peers on equal footing, each with its
 own container and its own persistent tmux session. `manager` is a *coordination* role, not an
 infrastructure hub: if you kill any container, the rest keep working and reconnect on their
-own (see the root `README.md` for how that failover actually works).
+own (see the root [`ARCHITECTURE.md`](../ARCHITECTURE.md) for how that failover actually
+works).
 
 ## How they talk to each other
 
@@ -61,10 +62,10 @@ whom.
   database, executing SQL against a shared environment, merging a Pull Request, or anything
   destructive/irreversible. Agents will ask rather than assume. See the "Authorization
   boundaries" section of `work-procedures.md` for the full list.
-- **Work is tracked in two places on purpose**: a local `workitems/` folder in this
-  repository (the working notes and technical detail the team uses day to day) and Azure
-  DevOps Boards (the record of what happened, visible to anyone outside this repo). Neither
-  replaces the other.
+- **Work is tracked in two places on purpose**: a private `workitems/` folder inside each
+  role's own project (the working notes and technical detail that role uses day to day, not
+  shared with the rest of the team) and Azure DevOps Boards (the record of what happened,
+  visible to anyone outside this repo). Neither replaces the other.
 - **You can drop into any agent's session at any time** (`docker exec -it pi-<role> tmux
   attach -t pi`) to see exactly what it's doing, ask it something directly, or redirect it —
   the team structure doesn't require you to go through `manager` for everything, it's just
@@ -75,8 +76,10 @@ whom.
 - [`work-procedures.md`](work-procedures.md) — the full workflow: stages, what each role
   does at each stage, and exactly what changes in Azure DevOps and in the local `workitems/`
   folder along the way.
-- [`../README.md`](../README.md) — infrastructure: how the containers are built, how pi-link
-  achieves cross-container discovery, how to connect, authenticate, and troubleshoot.
+- [`../README.md`](../README.md) — the role model, how to run and connect to the containers,
+  authenticate, and troubleshoot.
+- [`../ARCHITECTURE.md`](../ARCHITECTURE.md) — technical detail: how pi-link achieves
+  cross-container discovery, and how `backend`'s headless Eclipse is wired up.
 - `agents/<role>/AGENTS.md` — the context each agent itself loads on startup (its own role,
   who the rest of the team is, and how to use pi-link). This is written for the agents, not
   for humans, but it's worth skimming to understand what each one already "knows" by default.

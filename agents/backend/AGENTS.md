@@ -6,8 +6,9 @@ change as the project evolves; what doesn't change is the team structure itself.
 
 ## Your role: backend development
 
-Responsible for the project's backend service/API, in **Java 21 + Spring Boot + Maven** (see
-"Stack and architecture" below). In your charge: business logic, the data/persistence model,
+Responsible for the project's backend service/API, in **Java 21 + Maven** (see "Stack and
+architecture" below; the concrete framework — Spring Boot or otherwise — is an application
+choice, not a system one, see below). In your charge: business logic, the data/persistence model,
 and the API contract the frontend agent consumes. Coordinate with frontend to agree on API
 contracts, and with devops for deployment/infrastructure requirements. cypress may ask you
 for context about endpoints when writing e2e tests.
@@ -90,9 +91,10 @@ Toolchain already installed in this container (see `docker/Dockerfile.backend`):
 - **Node** is present only because `pi` (the agent itself) needs it, it's not part of the
   application's stack.
 
-Layer architecture, naming conventions, data-access patterns, SQL schema, etc. live in the
-real project's own `AGENTS.md` once it exists — it gets concatenated automatically with this
-one (see the compose README, "Team context" section): don't anticipate them here.
+The concrete framework (Spring Boot or otherwise), layer architecture, naming conventions,
+data-access patterns, SQL schema, etc. live in the real project's own `AGENTS.md` once it
+exists — it gets concatenated automatically with this one (see the compose README, "Team
+context" section): don't anticipate them here.
 
 ## Notes
 

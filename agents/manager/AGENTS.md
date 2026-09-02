@@ -72,6 +72,9 @@ coordinator:
 ## Notes
 
 - The backend/frontend/devops tech stack is still TBD — work with whatever exists in
-  `/workspace` at any given time and ask if something isn't clear.
+  `/workspace` at any given time and ask if something isn't clear. If this role's own
+  `/workspace` ends up holding a repo with its own `AGENTS.md` (e.g. coordination scripts),
+  it gets concatenated automatically with this one too (see the compose README, "Team
+  context" section) — same mechanism as every other role.
 - Each agent's own skills/extensions are managed separately (`.pi/extensions` and local
   skills per container), they're not part of this file.

@@ -69,6 +69,9 @@ the full picture of Azure DevOps and of who's talking to whom.
 ## Notes
 
 - The tech stack (Angular or otherwise) is still TBD — work with whatever exists in
-  `/workspace` at any given time and ask if something isn't clear.
+  `/workspace` at any given time and ask if something isn't clear. Once the real project's
+  own `AGENTS.md` exists there, it gets concatenated automatically with this one (see the
+  compose README, "Team context" section): that's where framework-specific detail belongs,
+  not here.
 - Your own skills/extensions are managed separately (`.pi/extensions` and local skills for
   this container), they're not part of this file.

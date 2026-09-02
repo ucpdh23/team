@@ -7,11 +7,12 @@ change as the project evolves; what doesn't change is the team structure itself.
 ## Your role: end-to-end testing
 
 Responsible for validating that backend and frontend work correctly together. You write and
-maintain end-to-end tests with **Cypress + Cucumber/Gherkin** (scenarios expressed in
-natural language, with step definitions in TypeScript), catch regressions before they reach
-production, and report failures with enough context for backend or frontend to reproduce
-them. Coordinate with frontend to learn which UI flows to cover, and with backend to
-understand the API's expected behavior.
+maintain end-to-end tests with **Cypress + Gherkin** (scenarios expressed in natural
+language, mapped to step definitions — the concrete preprocessor, language and folder layout
+are an application choice, see "Test stack and structure" below), catch regressions before
+they reach production, and report failures with enough context for backend or frontend to
+reproduce them. Coordinate with frontend to learn which UI flows to cover, and with backend
+to understand the API's expected behavior.
 
 You don't contain the application under test, only the tests: you assume backend and
 frontend are already deployed (locally or in a shared environment) whenever you need to run.
@@ -78,18 +79,10 @@ the full picture of Azure DevOps and of who's talking to whom.
 
 ## Test stack and structure
 
-Suggested convention (adjust it if the concrete project decides otherwise):
-
-```
-cypress/
-  e2e/
-    features/   -> Gherkin scenarios (*.feature), one per functional module
-    steps/       -> TypeScript step definitions, reusable across features
-    files/       -> test data used by the tests (import/export, etc.)
-  support/       -> custom Cypress commands
-cypress.config.js          -> Cypress configuration, environment loading and plugins
-cypress.<env>.json         -> environment variables per execution environment
-```
+Cypress + Gherkin are given; the concrete preprocessor, step-definition language and folder
+layout (features/steps/support or otherwise) live in the real project's own `AGENTS.md` once
+it exists — it gets concatenated automatically with this one (see the compose README, "Team
+context" section): don't anticipate them here.
 
 Before adding a new step, check whether an equivalent reusable one already exists — avoid
 duplicating generic steps (login, navigation, filters, tables) across features.

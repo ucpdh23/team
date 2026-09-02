@@ -1,12 +1,35 @@
 # team-pi
 
-Docker Compose infrastructure that spins up a **team of 5 [pi](https://pi.dev) agents**
-(`@earendil-works/pi-coding-agent`), each in its own container with its own role,
-coordinating with each other in real time through **[pi-link](https://pi.dev/packages/pi-link)**.
+Docker Compose infrastructure that implements a **software development team built on AI
+agents**: 5 [pi](https://pi.dev) agents (`@earendil-works/pi-coding-agent`), each in its own
+container with its own role, coordinating with each other in real time through
+**[pi-link](https://pi.dev/packages/pi-link)**. This isn't a simulation of a team — it's a
+working one, meant to own real deliverables end to end.
 
 ## Goal
 
-Simulate a software development team made of specialized autonomous agents:
+The 5-role split comes from real-world experience leading development teams across
+different projects: what matters isn't the headcount, it's that **each role knows exactly
+what it owns, what it works on, and how it's expected to coordinate with the rest**.
+
+- **Specialization, not imitation** — the split isn't about mirroring how human teams happen
+  to be organized. One agent covering backend, frontend, infra and tests at once drowns in
+  context that isn't its own and can only push on one front at a time. A focused role keeps
+  each agent's context to what that role actually needs, and lets all five make progress in
+  parallel.
+- **Boundaries are structural** — each role gets its own container, its own technological
+  independence and its own capabilities (repo, credentials, extensions — see
+  [`ARCHITECTURE.md`](ARCHITECTURE.md)), enforced by the infrastructure itself rather than
+  just described in an `AGENTS.md`. It's also why the model fits projects where backend and
+  frontend already live in separate, technologically independent repositories: each role
+  works only inside its own.
+- **Independent verification** — `cypress` runs end-to-end tests as a role of its own, so
+  integration correctness isn't self-certified by whoever built the feature. That doesn't
+  replace `backend`'s/`frontend`'s own unit and integration testing — it adds a check neither
+  of them can skip on their own.
+- **Scales without a redesign** — a second backend, a new specialty: one more
+  container/repo/`AGENTS.md` on the same pattern. `manager` stays responsible for
+  distributing work across however many roles actually exist.
 
 | Role | Container | Responsibility |
 |---|---|---|
@@ -22,61 +45,17 @@ communication loop.
 
 ## Architecture
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  pi-manager │     │  pi-backend │     │ pi-frontend │     │  pi-devops  │     │  pi-cypress │
-│             │     │             │     │             │     │             │     │             │
-│  pi + tmux  │     │  pi + tmux  │     │  pi + tmux  │     │  pi + tmux  │     │  pi + tmux  │
-│  + broker   │     │  + broker   │     │  + broker   │     │  + broker   │     │  + broker   │
-└──────┬──────┘     └──────┬──────┘     └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
-       │                   │                   │                   │                   │
-       └───────────────────┴─────────┬─────────┴───────────────────┴───────────────────┘
-                                      │  regular docker-compose bridge network
-                                      │  (each container keeps its own IP and ports)
-                                      ▼
-                    shared "pi-link-coord" volume (hub election via flock)
-```
-
-Every container is independent at the network level — there is no "special" container at
-the infrastructure level. The 3 components running inside each one:
-
-- **`pi`** — the agent itself, inside a **persistent tmux session** (stays alive even if
-  nobody is connected; auto-relaunches if it crashes).
-- **`pi-link`** (pi extension) — the communication channel between agents. It only ever
-  talks to `127.0.0.1:9900` (hardcoded, no auth, loopback-only — see
-  [pi-link docs](https://github.com/alvivar/pi-link)).
-- **`pi-link-broker.sh`** — a script of this project that solves the problem of `pi-link`
-  being tied to loopback: it lets 5 network-independent containers discover each other all
-  the same, with automatic failover. See below.
-
-### How the 5 agents connect without sharing a network
-
-`pi-link` uses a fixed hub-spoke topology on `127.0.0.1:9900`: the first one to start acts as
-the hub (WebSocket server) and the rest connect as clients. That works out of the box on a
-single machine with several terminals, but not across containers with different IPs — and
-the port isn't configurable via environment variable, flag, or config file.
-
-Instead of merging the network of all 5 containers (which would blow up any port each stack
-needs on its own — 8080, 4200, etc. — by sharing it across all 5), every container runs a
-**broker** (`docker/pi-link-broker.sh`) that:
-
-1. Competes for an exclusive, non-blocking **`flock`** on a file in the shared
-   `pi-link-coord` volume. Whoever gets it becomes the hub; the lock is released
-   automatically (at the host kernel level) if that container dies, so the rest compete for
-   the role again on their own.
-2. **The hub container** exposes its `127.0.0.1:9900` (where `pi-link` has actually bound)
-   to the rest of the network on a port of its own for this mesh, `0.0.0.0:9901`, via
-   `socat`.
-3. **The rest (spokes)** keep a local `socat` relay forwarding their own `127.0.0.1:9900`
-   to `<hub>:9901`.
-
-`pi-link` never knows any of this exists — it only ever sees its local `127.0.0.1:9900`
-working or not, and reacts with its own reconnection logic (2-5s randomized backoff). If the
-hub container dies, the rest reconnect on their own, following pi-link's own procedure,
-without any external script ever telling the `pi` process anything directly.
+Every container is independent at the network level — there's no "special" container at the
+infrastructure level, and every one runs the same 3 components (`pi` in a persistent tmux
+session, `pi-link`, and a broker script that gives the 5 of them a shared mesh without
+sharing a network). Full technical detail — the topology diagram, how the hub-election/broker
+mechanism works, and how `backend`'s headless Eclipse (`jdtbridge`) is wired up — lives in
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Documentation
 
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — technical detail: the pi-link mesh/broker
+  mechanism, and how `backend`'s headless Eclipse (`jdtbridge`) is wired up.
 - [`docs/introduction.md`](docs/introduction.md) — a human-oriented introduction to the
   team, written for someone joining the project (what this is, who's on the team, how to
   work with it).
@@ -90,6 +69,8 @@ without any external script ever telling the `pi` process anything directly.
 .
 ├── docker-compose.yml
 ├── .env.example              # copy to .env — ANTHROPIC_API_KEY is optional (see Authentication)
+├── README.md                    # this file: what/why, and the commands to run it
+├── ARCHITECTURE.md              # technical detail: pi-link mesh, backend's headless Eclipse
 ├── docs/                        # mounted read-write at /docs in every container (not /workspace)
 │   ├── introduction.md         # human-oriented intro to the team
 │   └── work-procedures.md      # detailed workflow: stages, roles, ADO/local workitem changes
@@ -100,7 +81,7 @@ without any external script ever telling the `pi` process anything directly.
 │   ├── Dockerfile.pi           # base image: manager, backend, frontend, devops
 │   ├── Dockerfile.cypress      # variant on top of cypress/included (TODO: pin version)
 │   ├── entrypoint.sh           # installs pi packages, starts broker + tmux session, watchdogs
-│   ├── pi-link-broker.sh       # hub election (flock) + socat relays (see Architecture)
+│   ├── pi-link-broker.sh       # hub election (flock) + socat relays (see ARCHITECTURE.md)
 │   └── generate-tmux-conf.sh   # generates /etc/tmux.conf at build time (colors + extended-keys)
 ├── agents/
 │   └── <role>/
@@ -231,13 +212,15 @@ easy to spot in the list.
 
 ## Eclipse GUI access (backend, via noVNC)
 
-The `backend` container runs a full headless Eclipse (SWT/GTK under Xvfb) with the
+The `backend` container runs a full headless Eclipse with the
 [jdtbridge](https://github.com/kaluchi/jdtbridge) plugin, driven day-to-day by the agent
-through the `jdt` CLI. `jdtbridge` has no command to *import* a new project into Eclipse's
-workspace, though — that still needs Eclipse's own GUI (`File → Import → Existing Maven
-Projects`, for example), and it's also the only way to get a real graphical Java debugger
-(breakpoints, variable inspection) rather than just console output. For that, the same Xvfb
-display Eclipse already runs on is exposed over VNC:
+through the `jdt` CLI (how it's wired up — Xvfb, the `jdtls`/`jdtbridge` split — is in
+[`ARCHITECTURE.md`](ARCHITECTURE.md#java-code-intelligence-in-backend-jdtbridge--headless-eclipse)).
+Its GUI is still occasionally needed: to *import* a new project into Eclipse's workspace
+(`jdtbridge` has no command for that — `File → Import → Existing Maven Projects`, for
+example), or to get a real graphical Java debugger (breakpoints, variable inspection) rather
+than just console output. For that, the same Xvfb display Eclipse already runs on is exposed
+over VNC:
 
 1. Set `BACKEND_VNC_PASSWORD` in `.env` (`python setup.py --init`, or edit it by hand — see
    `.env.example`). Leave it empty and nothing starts: `entrypoint.sh` refuses to run
@@ -262,15 +245,11 @@ Windows (nothing on your LAN can reach it) unless you've turned on WSL's "mirror
 networking mode — and the VNC connection itself still requires `BACKEND_VNC_PASSWORD`
 either way.
 
-Once a project is imported this way, `jdt`/`jdtbridge` picks it up immediately — the import
-step and the CLI share the same running Eclipse instance and workspace
-(`backend-eclipse-workspace` volume).
-
-**What you will and won't see live**: the agent doesn't type inside Eclipse's editor — it
-writes files directly under `/workspace` with its own tools. Eclipse only reflects those
-changes once refreshed (`jdt refresh`, or its own file-watcher if enabled), so noVNC shows
-you the current indexed/compiled/debug state, not a live keystroke-by-keystroke view. For
-watching the agent's own terminal in real time, use `python setup.py --tmux backend` instead.
+Once a project is imported this way, `jdt`/`jdtbridge` picks it up immediately — same running
+Eclipse instance and workspace as the CLI. See
+[`ARCHITECTURE.md`](ARCHITECTURE.md#java-code-intelligence-in-backend-jdtbridge--headless-eclipse)
+for what noVNC does and doesn't show live; to watch the agent's own terminal in real time
+instead, use `python setup.py --tmux backend`.
 
 ## Plugins/packages per agent
 
