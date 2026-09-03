@@ -86,6 +86,32 @@ concrete troubleshooting...) should live in the real infrastructure project's ow
   environments; request them interactively at execution time or via a dedicated environment
   variable, never as a plain-text argument.
 
+## Docker access (Docker-outside-of-Docker)
+
+This container can start real sibling containers on the host's own Docker daemon (e.g. a
+database the project's `backend` needs during development) — `docker`/`docker compose` are
+available, talking to the host's Docker via a mounted socket, not a nested engine of your
+own (see `ARCHITECTURE.md`, "devops: Docker-outside-of-Docker", for the full technical
+detail and why it's DooD rather than DinD).
+
+To make anything you start reachable by `backend` (or any other role), always attach it to
+the shared team network instead of leaving it on Docker's default network:
+
+```bash
+docker run -d --name <container-name> --network "$TEAM_NETWORK_NAME" ... <image>
+```
+
+`TEAM_NETWORK_NAME` is already set in your environment. Other roles then reach it by that
+`--name` as a hostname (Docker's embedded DNS on a user-defined bridge network resolves
+container names automatically) — no manual IP lookup, no extra `ports:` publishing needed
+unless something outside the team's containers also needs to reach it.
+
+Starting a local/dev container this way isn't in itself one of the actions requiring human
+authorization above (it's not a backup/restore, not SQL against a shared environment, not a
+real deployment) — but anything you do *inside* that container afterwards (e.g. running SQL
+against it, resetting its data) is still subject to the same rules once it's holding data
+other roles depend on.
+
 ## Notes
 
 - The backend/frontend tech stack is still TBD — coordinate with them before assuming

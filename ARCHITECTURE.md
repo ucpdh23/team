@@ -94,3 +94,62 @@ reflects those changes once refreshed (`jdt refresh`, or its own file-watcher if
 noVNC shows you the current indexed/compiled/debug state, not a live keystroke-by-keystroke
 view. For watching the agent's own terminal in real time, use `python setup.py --tmux
 backend` instead.
+
+## `devops`: Docker-outside-of-Docker
+
+`devops` needs to be able to stand up real infrastructure for the project it's working on —
+typically a database (e.g. MySQL) that `backend` connects to during development — without
+that being pre-baked into this repo (each project's actual infra needs are unknown ahead of
+time). The `devops` container is given the ability to run **sibling containers** on the
+host's own Docker daemon for that.
+
+### Docker-outside-of-Docker (DooD), not Docker-in-Docker (DinD)
+
+Rather than running a **nested** `dockerd` inside the `devops` container (true DinD — which
+needs `privileged: true`, effectively giving that container full control over its own kernel
+namespace and a meaningfully larger blast radius if compromised), `docker-compose.yml` mounts
+the **host's own Docker socket** into it:
+
+```yaml
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+```
+
+The `docker`/`docker compose`/`docker buildx` **client** binaries are installed in
+`docker/Dockerfile.devops` (no engine); every command `devops` runs is actually executed by
+the **host's** Docker daemon. A container `devops` starts this way (e.g. `docker run mysql:8
+...`) is a **sibling** of the 5 team containers — living directly in the host's Docker,
+not nested inside `devops` — which is exactly why it can be reachable by `backend` at all.
+
+**Security implication, explicitly**: mounting the host's Docker socket is equivalent to
+giving that container root-level control over the host (anything that can talk to the
+Docker socket can, among other things, mount the host's filesystem into a new container and
+read/write it as root). This is an intentional, accepted trade-off for the `devops` role
+specifically — it's the one role whose job is infrastructure — not something extended to any
+other container in this project.
+
+### Reaching sibling containers from the rest of the team
+
+All 5 team containers are attached to one explicit, named bridge network
+(`docker-compose.yml`'s top-level `networks: team-net`, real Docker name
+`${CONTAINER_PREFIX:-pi}-net`) instead of relying on Compose's implicit per-project default
+network, precisely so `devops` has a **stable, predictable name** to attach new containers
+to — it doesn't need to inspect `docker network ls` or guess a Compose-generated name.
+That name is exposed inside the `devops` container as the `TEAM_NETWORK_NAME` environment
+variable. To make a new container reachable by `backend` (or anyone else on the team):
+
+```bash
+docker run -d --name devops-mysql --network "$TEAM_NETWORK_NAME" \
+  -e MYSQL_ROOT_PASSWORD=... mysql:8
+```
+
+Because `team-net` is a **user-defined bridge network** (as opposed to Docker's legacy
+`bridge` default network), Docker's embedded DNS resolves container names automatically for
+anything else attached to that same network — so `backend` reaches it simply at host
+`devops-mysql`, port `3306`, no manual IP wiring, `--link`, or extra `ports:` publishing
+needed. This holds for any container `devops` starts this way, not just a database.
+
+`docker-compose.yml`'s own default network (created implicitly when no `networks:` section
+exists) would have worked too, but its name depends on the Compose project name (usually the
+repo's directory name), which isn't guaranteed stable across machines/checkouts — the
+explicit `team-net` name removes that guesswork.

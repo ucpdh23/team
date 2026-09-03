@@ -40,9 +40,10 @@ RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 WORKDIR /workspace
 
 # backend ya tiene su propio Dockerfile (docker/Dockerfile.backend: Java 21/Temurin, Maven,
-# Python 3.14, Eclipse JDT Language Server). Sigue pendiente para frontend (Angular) y devops
-# (terraform/kubectl u otro) — cuando se decida su stack, este Dockerfile compartido se
-# dividirá también para ellos, añadiendo aquí el toolchain específico de cada uno.
+# Python 3.14, Eclipse JDT Language Server), y devops también (docker/Dockerfile.devops:
+# cliente Docker para Docker-outside-of-Docker, ver ARCHITECTURE.md). Sigue pendiente para
+# frontend (Angular u otro) — cuando se decida su stack, este Dockerfile compartido se
+# dividirá también para él, añadiendo aquí el toolchain específico.
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/pi-link-broker.sh /usr/local/bin/pi-link-broker.sh

@@ -1,0 +1,68 @@
+# Dockerfile específico del rol devops: igual que Dockerfile.pi (manager/frontend), más el
+# cliente Docker (CLI únicamente, sin dockerd propio) para Docker-outside-of-Docker — ver
+# ARCHITECTURE.md ("devops: Docker-outside-of-Docker") y el mount del socket del host en
+# docker-compose.yml.
+FROM node:24-bookworm-slim
+
+# Sin esto, los bytes multibyte UTF-8 (tildes, ¡¿, ñ) llegan mal a tmux/pi porque la imagen
+# slim viene en locale C/POSIX por defecto. C.UTF-8 ya viene con glibc, no requiere generar
+# locales.
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep curl wget openssh-client tmux socat util-linux ncurses-term gnupg \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY docker/generate-tmux-conf.sh /usr/local/bin/generate-tmux-conf.sh
+RUN chmod +x /usr/local/bin/generate-tmux-conf.sh && /usr/local/bin/generate-tmux-conf.sh
+
+# GitHub CLI (gh)
+RUN mkdir -p -m 755 /usr/share/keyrings \
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends gh \
+  && rm -rf /var/lib/apt/lists/*
+
+# Azure CLI + extensión azure-devops
+RUN mkdir -p /etc/apt/keyrings \
+  && curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg \
+  && chmod go+r /etc/apt/keyrings/microsoft.gpg \
+  && . /etc/os-release \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/azure-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends azure-cli \
+  && az extension add --name azure-devops \
+  && rm -rf /var/lib/apt/lists/*
+
+# Docker CLI (cliente `docker`/`docker compose`/`docker buildx`, SIN motor/dockerd propio):
+# este contenedor no corre Docker-in-Docker anidado (que exigiría `privileged: true`, con sus
+# riesgos) sino Docker-outside-of-Docker — habla directamente con el Docker del *host* a
+# través del socket montado en docker-compose.yml (/var/run/docker.sock). Cualquier
+# contenedor que `devops` levante así (p. ej. `docker run --network $TEAM_NETWORK_NAME
+# mysql:8 ...`) es un hermano de los 5 del equipo en el Docker del host, no algo anidado
+# dentro de este contenedor — por eso puede estar en la misma red y ser alcanzable por
+# `backend`. Ver ARCHITECTURE.md para el detalle completo y las implicaciones de seguridad
+# (montar el socket del host equivale a darle a este contenedor control root-equivalente
+# sobre el host).
+RUN install -m 0755 -d /etc/apt/keyrings \
+  && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+  && chmod a+r /etc/apt/keyrings/docker.gpg \
+  && . /etc/os-release \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian ${VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin docker-buildx-plugin \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+WORKDIR /workspace
+
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY docker/pi-link-broker.sh /usr/local/bin/pi-link-broker.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/pi-link-broker.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["--link"]

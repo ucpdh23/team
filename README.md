@@ -48,8 +48,11 @@ communication loop.
 Every container is independent at the network level — there's no "special" container at the
 infrastructure level, and every one runs the same 3 components (`pi` in a persistent tmux
 session, `pi-link`, and a broker script that gives the 5 of them a shared mesh without
-sharing a network). Full technical detail — the topology diagram, how the hub-election/broker
-mechanism works, and how `backend`'s headless Eclipse (`jdtbridge`) is wired up — lives in
+sharing a network). All 5 also share one explicit Docker network (`team-net`), and `devops`
+can start further sibling containers on it (Docker-outside-of-Docker) — e.g. a database
+`backend` needs during development, reachable by its container name on that same network.
+Full technical detail — the topology diagram, how the hub-election/broker mechanism works,
+the DooD setup, and how `backend`'s headless Eclipse (`jdtbridge`) is wired up — lives in
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Documentation
@@ -78,7 +81,9 @@ mechanism works, and how `backend`'s headless Eclipse (`jdtbridge`) is wired up 
 │   └── <role>/                  # mounted at ~/.pi/cost-tracker in that role's container — see
 │                                 # "LLM cost tracking" below
 ├── docker/
-│   ├── Dockerfile.pi           # base image: manager, backend, frontend, devops
+│   ├── Dockerfile.pi           # base image: manager, frontend (backend/devops have their own)
+│   ├── Dockerfile.backend      # backend image: Java/Maven toolchain + headless Eclipse/jdtbridge
+│   ├── Dockerfile.devops       # devops image: adds Docker CLI (Docker-outside-of-Docker, see ARCHITECTURE.md)
 │   ├── Dockerfile.cypress      # variant on top of cypress/included (TODO: pin version)
 │   ├── entrypoint.sh           # installs pi packages, starts broker + tmux session, watchdogs
 │   ├── pi-link-broker.sh       # hub election (flock) + socat relays (see ARCHITECTURE.md)
@@ -318,9 +323,9 @@ docker exec pi-<role> tmux capture-pane -t pi -p        # pi-link's on-screen st
 
 ## TODO
 
-- **Tech stack per role** (backend Java/Python, frontend Angular, devops
-  terraform/kubectl...) — once decided, `Dockerfile.pi` will be split into one per role with
-  the matching toolchain (flagged with `TODO` in the file itself).
+- **Tech stack per role** (frontend Angular, ...) — once decided, `Dockerfile.pi` will be
+  split for it too, adding its matching toolchain (flagged with `TODO` in the file itself;
+  backend and devops already have their own `Dockerfile.backend`/`Dockerfile.devops`).
 - **Headless Eclipse pi extension** for Java code management, pending integration once the
   backend stack is confirmed.
 - **`cypress/included` version** — `Dockerfile.cypress` uses `latest` as a placeholder; pin

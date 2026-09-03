@@ -27,6 +27,8 @@ services:
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
     command: ["--link-name", "manager"]
+    networks:
+      - team-net
     volumes:
       - pi-link-coord:/var/run/pi-link
       - manager-workspace:/workspace
@@ -60,6 +62,8 @@ services:
     # así que un publish 127.0.0.1 dentro de la VM nunca lo ve.
     ports:
       - "${BACKEND_VNC_BIND:-127.0.0.1}:${BACKEND_VNC_PORT:-6080}:6080"
+    networks:
+      - team-net
     volumes:
       - pi-link-coord:/var/run/pi-link
       - backend-workspace:/workspace
@@ -86,6 +90,8 @@ services:
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
     command: ["--link-name", "frontend"]
+    networks:
+      - team-net
     volumes:
       - pi-link-coord:/var/run/pi-link
       - frontend-workspace:/workspace
@@ -98,7 +104,7 @@ services:
   devops:
     build:
       context: .
-      dockerfile: docker/Dockerfile.pi
+      dockerfile: docker/Dockerfile.devops
     image: team-pi-devops
     container_name: ${CONTAINER_PREFIX:-pi}-devops
     environment:
@@ -110,7 +116,16 @@ services:
       - ADO_PAT=${DEVOPS_ADO_PAT:-}
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
+      # Nombre real (no la clave `team-net` de este fichero) de la red docker compartida por
+      # los 5 contenedores del equipo — ver ARCHITECTURE.md ("devops: Docker-outside-of-Docker").
+      # devops la usa con `docker run --network $TEAM_NETWORK_NAME ...` para que cualquier
+      # contenedor que levante (p. ej. una BBDD de desarrollo) sea alcanzable por `backend` y
+      # el resto por su nombre de contenedor (DNS embebido de Docker en redes bridge definidas
+      # por el usuario).
+      - TEAM_NETWORK_NAME=${CONTAINER_PREFIX:-pi}-net
     command: ["--link-name", "devops"]
+    networks:
+      - team-net
     volumes:
       - pi-link-coord:/var/run/pi-link
       - devops-workspace:/workspace
@@ -119,6 +134,12 @@ services:
       - ./agents/devops/AGENTS.md:/root/.pi/agent/AGENTS.md
       - ./agents/devops/pi/extensions:/root/.pi/agent/extensions
       - ./cost-tracking/devops:/root/.pi/cost-tracker
+      # Docker-outside-of-Docker: monta el socket del Docker del *host* en vez de correr un
+      # dockerd anidado dentro de este contenedor (evita `privileged: true` y sus riesgos).
+      # devops puede así lanzar contenedores hermanos (p. ej. `docker run mysql:8 ...`) que
+      # viven junto a los 5 del equipo en el mismo Docker del host, no anidados dentro de
+      # devops — ver ARCHITECTURE.md para el detalle completo y las implicaciones de seguridad.
+      - /var/run/docker.sock:/var/run/docker.sock
 
   cypress:
     build:
@@ -136,6 +157,8 @@ services:
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
     command: ["--link-name", "cypress"]
+    networks:
+      - team-net
     volumes:
       - pi-link-coord:/var/run/pi-link
       - cypress-workspace:/workspace
@@ -149,6 +172,13 @@ services:
 # servicios de arriba para citarlo; el nombre real del volumen en Docker (`name:`) sí usa
 # CONTAINER_PREFIX, con el mismo criterio que container_name. Compose no permite
 # interpolar variables en las propias claves de este bloque, solo en valores como `name:`.
+# Mismo criterio para la red: `team-net` es la clave fija citada por los 5 servicios, el
+# nombre real en Docker sí lleva CONTAINER_PREFIX (ver TEAM_NETWORK_NAME en el servicio
+# devops, y ARCHITECTURE.md).
+networks:
+  team-net:
+    name: ${CONTAINER_PREFIX:-pi}-net
+
 volumes:
   pi-link-coord:
     name: ${CONTAINER_PREFIX:-pi}-link-coord

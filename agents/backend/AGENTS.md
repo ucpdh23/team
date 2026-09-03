@@ -100,7 +100,9 @@ context" section): don't anticipate them here.
 
 - The Maven project isn't scaffolded yet in `/workspace` (no `pom.xml` or `src/main/java/`
   yet) — work with whatever exists at any given time and ask if something isn't clear.
-- There's no database service in `docker-compose.yml` yet — coordinate with `devops` before
-  assuming you can run anything against a real database.
+- There's no database service in `docker-compose.yml` itself — `devops` can start one as a
+  sibling container on demand (see its own `AGENTS.md`/`ARCHITECTURE.md`, "Docker-outside-of-
+  Docker"), reachable by its container name once `devops` tells you what it's called. Don't
+  assume one exists or is reachable until `devops` confirms it.
 - Your own skills/extensions are managed separately (`.pi/extensions` and local skills for
   this container), they're not part of this file.
