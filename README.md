@@ -8,9 +8,8 @@ working one, meant to own real deliverables end to end.
 
 ## Goal
 
-The 5-role split comes from real-world experience leading development teams across
-different projects: what matters isn't the headcount, it's that **each role knows exactly
-what it owns, what it works on, and how it's expected to coordinate with the rest**.
+Create a 5-role system to handle development activities. 5 members as a small size group, where
+**each role knows exactly what it owns, what it works on, and how it's expected to coordinate with the rest**.
 
 - **Specialization, not imitation** — the split isn't about mirroring how human teams happen
   to be organized. One agent covering backend, frontend, infra and tests at once drowns in
