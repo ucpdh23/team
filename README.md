@@ -135,6 +135,7 @@ to `.env.bak` first). You can also skip it and copy/edit `.env.example` by hand.
 | `ADO_ORGANIZATION_URL`, `ADO_PROJECT` | Shared Azure DevOps organization/project (see `docs/work-procedures.md`). Exposed as-is inside every container; `entrypoint.sh` runs `az devops configure --defaults organization=$ADO_ORGANIZATION_URL project=$ADO_PROJECT` automatically on every start, so `az boards`/`az repos` commands don't need `--organization`/`--project` in that role's session. |
 | `<ROLE>_ADO_PAT` | Azure DevOps PAT for that role, used by `az boards`/`az repos` inside its container — see [Azure DevOps CLI authentication](#azure-devops-cli-authentication) below for exactly which scopes each role needs. Exposed inside each container as `ADO_PAT`; `entrypoint.sh` maps it to `AZURE_DEVOPS_EXT_PAT`, the environment variable az CLI's `azure-devops` extension reads automatically — no `az devops login` needed, and it's never written to disk. |
 | `BACKEND_VNC_PASSWORD`, `BACKEND_VNC_PORT`, `BACKEND_VNC_BIND` | VNC/noVNC access to the `backend` container's headless Eclipse (see [Eclipse GUI access](#eclipse-gui-access-backend-via-novnc) below). Empty password = VNC disabled (default). Port defaults to `6080`; bind defaults to `127.0.0.1` (set to `0.0.0.0` if running Docker inside WSL2). |
+| `FRONTEND_PORT`, `FRONTEND_BIND` | Access to the `frontend` container's dev server (see [Frontend dev server access](#frontend-dev-server-access) below). Same accessibility criteria as the backend VNC variables above: port defaults to `4200`; bind defaults to `127.0.0.1` (set to `0.0.0.0` if running Docker inside WSL2). |
 
 To rebuild after changing any Dockerfile/script and pick up the changes without losing
 existing sessions or logins:
@@ -255,6 +256,34 @@ Eclipse instance and workspace as the CLI. See
 [`ARCHITECTURE.md`](ARCHITECTURE.md#java-code-intelligence-in-backend-jdtbridge--headless-eclipse)
 for what noVNC does and doesn't show live; to watch the agent's own terminal in real time
 instead, use `python setup.py --tmux backend`.
+
+## Frontend dev server access
+
+The `frontend` container publishes port `4200` (the conventional Angular CLI dev-server
+port, `ng serve`'s default) to the host, so you can connect to whatever the agent has
+running there from outside the container — same accessibility criteria as the backend VNC
+setup above:
+
+1. Port and bind are configurable via `FRONTEND_PORT`/`FRONTEND_BIND` in `.env` (defaults:
+   `4200` and `127.0.0.1`) — no separate enable/disable switch here (unlike
+   `BACKEND_VNC_PASSWORD`): a dev server isn't authenticated by itself either way, so
+   there's no unauthenticated-by-default risk this port mapping newly introduces.
+2. `python setup.py --start` (or restart just `frontend` after editing `.env`).
+3. Open `http://127.0.0.1:${FRONTEND_PORT:-4200}` in a browser. The port is only published
+   on the host's loopback interface by default (`FRONTEND_BIND`) — if `docker compose` runs
+   on a remote machine, reach it through an SSH tunnel (same pattern as [Remote VS
+   Code](#remote-vs-code) above), not by changing this to a wider bind address.
+
+**The dev server itself must listen on `0.0.0.0` inside the container, not just
+`localhost`/`127.0.0.1`** — Docker's port publishing forwards to the container's network
+interface, not into its loopback namespace, so a server bound only to `127.0.0.1` *inside*
+the container is unreachable from outside it no matter how the port is published on the
+host. For Angular's CLI this means starting it with `ng serve --host 0.0.0.0` (the default,
+`ng serve` alone, binds to `localhost` only and won't work here).
+
+**Running Docker inside WSL2**: same fix and same reasoning as the backend VNC section above
+— set `FRONTEND_BIND=0.0.0.0` in `.env` and restart `frontend` if `http://localhost:4200`
+from Windows doesn't reach it.
 
 ## Plugins/packages per agent
 

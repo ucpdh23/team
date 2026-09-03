@@ -90,6 +90,15 @@ services:
       - ADO_ORGANIZATION_URL
       - ADO_PROJECT
     command: ["--link-name", "frontend"]
+    # Por defecto solo en loopback del host, mismo criterio que el VNC de backend: si docker
+    # compose corre en una máquina remota, entra por túnel SSH (ver "Remote VS Code" en el
+    # README), no exponiendo este puerto a la red. FRONTEND_BIND existe para el caso WSL2 (ver
+    # README) — el reenvío automático de localhost de WSL2 hacia Windows entra por la interfaz
+    # virtual de la VM, no por loopback, así que un publish 127.0.0.1 dentro de la VM nunca lo
+    # ve. El servidor de desarrollo dentro del contenedor (p. ej. `ng serve`) debe escuchar en
+    # 0.0.0.0, no solo en localhost, o esta publicación de puerto no llega a verlo.
+    ports:
+      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-4200}:4200"
     networks:
       - team-net
     volumes:

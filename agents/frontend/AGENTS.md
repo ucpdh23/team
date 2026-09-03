@@ -66,6 +66,15 @@ If you have doubts about the general procedure, which stage the work is currentl
 another agent's role/availability, ask `manager` via `link_prompt` — they're the one keeping
 the full picture of Azure DevOps and of who's talking to whom.
 
+## Dev server access from outside the container
+
+Port `4200` is published from this container to the host (see `docker-compose.yml` /
+README's "Frontend dev server access") so a human can reach whatever dev server you're
+running. For that to actually work, start it bound to **`0.0.0.0`**, not just `localhost` —
+e.g. `ng serve --host 0.0.0.0` for the Angular CLI (its default, `ng serve` alone, binds to
+`localhost` only and won't be reachable from outside the container no matter how the port is
+published on the host).
+
 ## Notes
 
 - The tech stack (Angular or otherwise) is still TBD — work with whatever exists in
