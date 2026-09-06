@@ -73,6 +73,7 @@ backend's headless Eclipse (`jdtbridge`) is wired up — lives in
 .
 ├── docker-compose.yml
 ├── .env.example              # copy to .env — ANTHROPIC_API_KEY is optional (see Authentication)
+├── .gitattributes            # forces LF on checkout — CRLF breaks the scripts inside the containers
 ├── README.md                    # this file: what/why, and the commands to run it
 ├── ARCHITECTURE.md              # technical detail: pi-link mesh, backend's headless Eclipse
 ├── docs/                        # mounted read-write at /docs in every container (not /workspace)
@@ -438,6 +439,22 @@ persist it. `docs/` (introduction, work procedures) is mounted the same way, at 
 rather than `/workspace/docs`, so `/workspace` stays free for the role's actual repository.
 
 ## Troubleshooting
+
+**Build fails on Windows with `/usr/bin/env: 'bash\r': No such file or directory`** — Git for
+Windows with its default `core.autocrlf=true` converted this repo's shell scripts to CRLF on
+checkout, so the shebang line became `#!/usr/bin/env bash\r` and the container looked for an
+interpreter literally called `bash\r`. The repo's `.gitattributes` (`* text=auto eol=lf`)
+prevents it for any fresh clone, and every Dockerfile strips CRs from the scripts it copies
+before running them, so a build works either way. If you cloned **before** `.gitattributes`
+existed, your working tree still holds the converted files — renormalize it once:
+
+```bash
+git add --renormalize .
+git checkout -- .
+```
+
+(`git status` should then show nothing; if it lists the `.sh` files, commit that renormalization
+or reset it, whichever fits.) A fresh `git clone` also does the job.
 
 **Broken special characters (`_` instead of accents/¡¿/ñ)** — the image sets
 `LANG=LC_ALL=C.UTF-8` in the Dockerfile; if you see this after an image change, rebuild with

@@ -153,7 +153,11 @@ def cmd_init(args) -> int:
         shutil.copy2(ENV_FILE, ENV_BACKUP)
         print(f"\nCopia de seguridad del .env anterior guardada en {ENV_BACKUP.name}")
 
-    ENV_FILE.write_text("\n".join(output_lines) + "\n", encoding="utf-8")
+    # newline="" desactiva la traducción de saltos de línea de Python: sin ello, en Windows
+    # este write dejaría el .env en CRLF. Docker Compose lo tolera, pero el fichero acaba
+    # también dentro de contenedores Linux y es una fuente de sorpresas gratuita.
+    with ENV_FILE.open("w", encoding="utf-8", newline="") as fh:
+        fh.write("\n".join(output_lines) + "\n")
     print(f"{ENV_FILE.name} generado correctamente.")
     return 0
 

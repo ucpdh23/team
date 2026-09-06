@@ -1,0 +1,19 @@
+# Todo lo que hay en este repositorio acaba ejecutándose o leyéndose DENTRO de contenedores
+# Linux (los scripts de docker/ son el caso crítico: los copia el Dockerfile y los ejecuta el
+# shell del contenedor). Sin esto, un clone en Windows con la configuración por defecto de Git
+# (core.autocrlf=true) los deja con finales de línea CRLF, y el build falla en el primer script
+# con un error que no dice de qué va:
+#
+#   /usr/bin/env: 'bash\r': No such file or directory
+#
+# ...porque el "\r" pasa a formar parte del nombre del intérprete en la línea shebang.
+#
+# `text=auto eol=lf` normaliza a LF en el repositorio y, además, hace el checkout en LF en
+# todas las plataformas. Es seguro aquí porque no hay ningún fichero binario versionado.
+* text=auto eol=lf
+
+# Explícito para lo que más duele si se rompe, aunque la regla de arriba ya lo cubre.
+*.sh text eol=lf
+*.py text eol=lf
+Dockerfile* text eol=lf
+*.yml text eol=lf

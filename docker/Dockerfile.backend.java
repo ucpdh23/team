@@ -22,7 +22,13 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY docker/generate-tmux-conf.sh /usr/local/bin/generate-tmux-conf.sh
-RUN chmod +x /usr/local/bin/generate-tmux-conf.sh && /usr/local/bin/generate-tmux-conf.sh
+# El `sed` quita los CR de un posible checkout en CRLF (clone en Windows con
+# core.autocrlf=true, o descarga en zip) antes de ejecutar nada: sin él, la línea shebang queda
+# como `#!/usr/bin/env bash\r` y el contenedor falla con "'bash\r': No such file or directory".
+# El .gitattributes de la raíz ya lo evita de origen; esto es la red de seguridad para un árbol
+# de trabajo que ya venía convertido.
+RUN sed -i 's/\r$//' /usr/local/bin/generate-tmux-conf.sh \
+  && chmod +x /usr/local/bin/generate-tmux-conf.sh && /usr/local/bin/generate-tmux-conf.sh
 
 # GitHub CLI (gh)
 RUN mkdir -p -m 755 /usr/share/keyrings \
@@ -89,7 +95,8 @@ RUN mkdir -p /opt/jdtls \
   && tar -xzf /tmp/jdtls.tar.gz -C /opt/jdtls \
   && rm /tmp/jdtls.tar.gz
 COPY docker/jdtls.sh /usr/local/bin/jdtls
-RUN chmod +x /usr/local/bin/jdtls
+RUN sed -i 's/\r$//' /usr/local/bin/jdtls \
+  && chmod +x /usr/local/bin/jdtls
 
 # Eclipse IDE (paquete "Java", release 2026-06) + jdtbridge (https://github.com/kaluchi/jdtbridge):
 # un plugin de Eclipse que expone las funcionalidades de JDT (búsqueda semántica, compilación
@@ -138,7 +145,8 @@ WORKDIR /workspace
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/pi-link-broker.sh /usr/local/bin/pi-link-broker.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/pi-link-broker.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh /usr/local/bin/pi-link-broker.sh \
+  && chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/pi-link-broker.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["--link"]
