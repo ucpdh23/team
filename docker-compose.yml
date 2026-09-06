@@ -38,16 +38,26 @@ services:
       - ./agents/manager/pi/extensions:/root/.pi/agent/extensions
       - ./cost-tracking/manager:/root/.pi/cost-tracker
 
+  # El lenguaje del backend se elige con BACKEND_STACK en .env (`python setup.py --init` lo
+  # pregunta ofreciendo las variantes disponibles); por defecto `java`. Cada variante aporta su
+  # propio Dockerfile (docker/Dockerfile.backend.<stack>) y su propio contexto de agente
+  # (agents/backend/AGENTS.<stack>.md); el resto del servicio —red, volúmenes, pi-link, ADO— es
+  # idéntico, porque el stack solo cambia el toolchain de dentro, no el papel del rol en el
+  # equipo. Añadir python/go/... es añadir ese par de ficheros, sin tocar este bloque. Ver
+  # README ("Backend stack") y ARCHITECTURE.md ("Backend stack variants").
   backend:
     build:
       context: .
-      dockerfile: docker/Dockerfile.backend
-    image: team-pi-backend
+      dockerfile: docker/Dockerfile.backend.${BACKEND_STACK:-java}
+    # Nombre de imagen por variante: cambiar de stack construye una imagen distinta en vez de
+    # pisar la anterior, así volver atrás no obliga a reconstruir desde cero.
+    image: team-pi-backend-${BACKEND_STACK:-java}
     container_name: ${CONTAINER_PREFIX:-pi}-backend
     environment:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=backend
+      - BACKEND_STACK=${BACKEND_STACK:-java}
       - REPO_URL=${BACKEND_REPO_URL:-}
       - GIT_TOKEN=${BACKEND_GIT_TOKEN:-}
       - ADO_PAT=${BACKEND_ADO_PAT:-}
@@ -60,6 +70,9 @@ services:
     # red. BACKEND_VNC_BIND existe para el caso WSL2 (ver README) — el reenvío automático de
     # localhost de WSL2 hacia Windows entra por la interfaz virtual de la VM, no por loopback,
     # así que un publish 127.0.0.1 dentro de la VM nunca lo ve.
+    # Solo tiene efecto real en variantes con GUI que servir (hoy `java`, por su Eclipse): en el
+    # resto nadie escucha en el 6080 del contenedor y el mapeo queda inerte, que es la razón de
+    # dejarlo aquí sin condicionar en vez de partir el servicio en dos.
     ports:
       - "${BACKEND_VNC_BIND:-127.0.0.1}:${BACKEND_VNC_PORT:-6080}:6080"
     networks:
@@ -69,9 +82,14 @@ services:
       - backend-workspace:/workspace
       - ./docs:/docs
       - backend-pi-home:/root/.pi/agent
-      - ./agents/backend/AGENTS.md:/root/.pi/agent/AGENTS.md
+      # Contexto de equipo propio de la variante: describe el toolchain que ese Dockerfile
+      # instala de verdad. Las extensiones pi, en cambio, son del rol y se comparten entre
+      # variantes.
+      - ./agents/backend/AGENTS.${BACKEND_STACK:-java}.md:/root/.pi/agent/AGENTS.md
       - ./agents/backend/pi/extensions:/root/.pi/agent/extensions
       - ./cost-tracking/backend:/root/.pi/cost-tracker
+      # Índice/workspace de Eclipse, solo usado por la variante `java`; en las demás es un
+      # directorio vacío más, mismo criterio que el mapeo del puerto VNC de arriba.
       - backend-eclipse-workspace:/root/eclipse-workspace
 
   frontend:

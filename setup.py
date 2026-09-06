@@ -21,6 +21,35 @@ ENV_BACKUP = ROOT / ".env.bak"
 TRUTHY_ANSWERS = {"s", "si", "sí", "y", "yes"}
 ROLES = ("manager", "backend", "frontend", "devops", "cypress")
 
+DOCKER_DIR = ROOT / "docker"
+AGENTS_DIR = ROOT / "agents"
+
+
+def discover_stacks(role: str) -> list[str]:
+    """Variantes de stack disponibles para un rol, descubiertas del propio repositorio.
+
+    Una variante existe cuando están sus dos piezas: la imagen que la construye
+    (docker/Dockerfile.<rol>.<stack>) y el contexto de equipo que recibirá su agente
+    (agents/<rol>/AGENTS.<stack>.md). Se descubren en vez de listarlas aquí para que añadir un
+    lenguaje nuevo (python, go, ...) sea añadir esos dos ficheros y nada más — este script no
+    hay que tocarlo, y una variante a medio añadir no llega a ofrecerse.
+    """
+    stacks = []
+    for dockerfile in sorted(DOCKER_DIR.glob(f"Dockerfile.{role}.*")):
+        stack = dockerfile.name.split(".", 2)[2]
+        if (AGENTS_DIR / role / f"AGENTS.{stack}.md").exists():
+            stacks.append(stack)
+    return stacks
+
+
+# Variables de .env.example cuyo valor no es texto libre sino una de varias opciones cerradas:
+# --init las pregunta como menú numerado y valida la respuesta, en vez de aceptar cualquier
+# cosa y dejar que falle mucho después en `docker compose up`. El valor es una función para que
+# las opciones se resuelvan en el momento de preguntar (ver discover_stacks).
+ENV_CHOICES = {
+    "BACKEND_STACK": lambda: discover_stacks("backend"),
+}
+
 
 def parse_env_example(path: Path):
     """Lee .env.example y devuelve (lineas, entradas).
@@ -47,6 +76,40 @@ def quote_if_needed(value: str) -> str:
     return f'"{value}"' if needs_quotes else value
 
 
+def ask_choice(key: str, default: str, options: list[str]) -> str:
+    """Pregunta por una variable de opciones cerradas mostrando un menú numerado.
+
+    Acepta tanto el número como el nombre de la opción, y Enter para el valor por defecto.
+    Reprégunta mientras la respuesta no sea válida. Si el repositorio no ofrece ninguna opción
+    (algo va mal en la instalación), no bloquea: devuelve el valor por defecto de .env.example
+    y lo avisa.
+    """
+    if not options:
+        print(f"\n[aviso] no se ha encontrado ninguna opción válida para {key}; "
+              f"se deja el valor por defecto ({default or 'vacío'}).")
+        return default
+    if default not in options:
+        default = options[0]
+
+    print(f"\n{key} — opciones disponibles:")
+    for i, option in enumerate(options, start=1):
+        marca = " (por defecto)" if option == default else ""
+        print(f"  {i}) {option}{marca}")
+
+    while True:
+        try:
+            raw = input(f"Elige una opción [1-{len(options)}, Enter = {default}]: ").strip()
+        except EOFError:
+            raw = ""
+        if raw == "":
+            return default
+        if raw.isdigit() and 1 <= int(raw) <= len(options):
+            return options[int(raw) - 1]
+        if raw in options:
+            return raw
+        print(f"  '{raw}' no es una opción válida.")
+
+
 def cmd_init(args) -> int:
     if not ENV_EXAMPLE.exists():
         print(f"No se encuentra {ENV_EXAMPLE.name} en {ROOT}", file=sys.stderr)
@@ -71,6 +134,9 @@ def cmd_init(args) -> int:
 
     answers = {}
     for _, key, default in entries:
+        if key in ENV_CHOICES:
+            answers[key] = ask_choice(key, default, ENV_CHOICES[key]())
+            continue
         prompt = f"{key} [{default}]: " if default else f"{key} []: "
         try:
             raw = input(prompt)

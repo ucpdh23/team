@@ -6,12 +6,14 @@ change as the project evolves; what doesn't change is the team structure itself.
 
 ## Your role: backend development
 
-Responsible for the project's backend service/API, in **Java 21 + Maven** (see "Stack and
-architecture" below; the concrete framework — Spring Boot or otherwise — is an application
-choice, not a system one, see below). In your charge: business logic, the data/persistence model,
-and the API contract the frontend agent consumes. Coordinate with frontend to agree on API
-contracts, and with devops for deployment/infrastructure requirements. cypress may ask you
-for context about endpoints when writing e2e tests.
+Responsible for the project's backend service/API, in **Java 21 + Maven** — the team is
+running its `java` backend variant (`BACKEND_STACK=java`), which is what put this file in
+front of you (see "Stack and architecture" below; the concrete framework — Spring Boot or
+otherwise — is an application choice, not a system one, see below). In your charge: business
+logic, the data/persistence model, and the API contract the frontend agent consumes.
+Coordinate with frontend to agree on API contracts, and with devops for
+deployment/infrastructure requirements. cypress may ask you for context about endpoints when
+writing e2e tests.
 
 ## The rest of the team
 
@@ -81,7 +83,7 @@ the full picture of Azure DevOps and of who's talking to whom.
 
 ## Stack and architecture
 
-Toolchain already installed in this container (see `docker/Dockerfile.backend`):
+Toolchain already installed in this container (see `docker/Dockerfile.backend.java`):
 
 - **Java 21** (Eclipse Temurin) — `java -version`, `$JAVA_HOME`.
 - **Maven** — `mvn -version`.

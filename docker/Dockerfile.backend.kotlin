@@ -1,0 +1,143 @@
+# Dockerfile de la variante **kotlin** del rol backend (ver agents/backend/AGENTS.kotlin.md).
+# Se elige con BACKEND_STACK=kotlin en .env (`python setup.py --init` lo pregunta); la variante
+# por defecto es docker/Dockerfile.backend.java. Ver README ("Backend stack") y ARCHITECTURE.md
+# ("Backend stack variants") para el mecanismo completo.
+#
+# Diferencia principal con la variante java: aquí NO hay Eclipse ni jdtbridge. Ese puente
+# depende de una instancia real de Eclipse con JDT, cuyo soporte de Kotlin está descontinuado;
+# el equivalente en este ecosistema es el Kotlin Language Server (headless, LSP puro), que se
+# instala más abajo. Por eso esta imagen tampoco lleva Xvfb, x11vnc ni noVNC: no hay GUI que
+# servir. entrypoint.sh ya condiciona todo ese bloque a que exista /opt/eclipse, así que se
+# salta solo — no hace falta ninguna variante suya.
+FROM node:24-bookworm-slim
+
+# Sin esto, los bytes multibyte UTF-8 (tildes, ¡¿, ñ) llegan mal a tmux/pi porque la imagen
+# slim viene en locale C/POSIX por defecto. C.UTF-8 ya viene con glibc, no requiere generar
+# locales.
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# unzip: las distribuciones de Gradle, del compilador de Kotlin y del Kotlin Language Server se
+# publican como .zip (a diferencia de los .tar.gz de Maven/jdtls en la variante java).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep curl wget openssh-client tmux socat util-linux ncurses-term gnupg unzip \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY docker/generate-tmux-conf.sh /usr/local/bin/generate-tmux-conf.sh
+RUN chmod +x /usr/local/bin/generate-tmux-conf.sh && /usr/local/bin/generate-tmux-conf.sh
+
+# GitHub CLI (gh)
+RUN mkdir -p -m 755 /usr/share/keyrings \
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends gh \
+  && rm -rf /var/lib/apt/lists/*
+
+# Azure CLI + extensión azure-devops
+RUN mkdir -p /etc/apt/keyrings \
+  && curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg \
+  && chmod go+r /etc/apt/keyrings/microsoft.gpg \
+  && . /etc/os-release \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/azure-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends azure-cli \
+  && az extension add --name azure-devops \
+  && rm -rf /var/lib/apt/lists/*
+
+# Java 21 (Eclipse Temurin) — Kotlin/JVM compila y se ejecuta sobre un JDK, así que sigue siendo
+# la base del stack. Debian bookworm solo trae OpenJDK 17 en sus repos oficiales, de ahí el repo
+# apt oficial de Adoptium. El symlink fija un JAVA_HOME estable independiente de la arquitectura
+# (el paquete instala en .../temurin-21-jdk-amd64, -arm64, ...): a diferencia de la variante
+# java, esta imagen no tiene ninguna pieza atada a x86_64, así que no hay motivo para clavarla.
+RUN mkdir -p /etc/apt/keyrings \
+  && curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor > /etc/apt/keyrings/adoptium.gpg \
+  && chmod go+r /etc/apt/keyrings/adoptium.gpg \
+  && . /etc/os-release \
+  && echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/adoptium.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends temurin-21-jdk \
+  && rm -rf /var/lib/apt/lists/* \
+  && ln -s /usr/lib/jvm/temurin-21-jdk-* /usr/lib/jvm/temurin-21
+
+ENV JAVA_HOME=/usr/lib/jvm/temurin-21
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# Gradle — build tool por defecto de Kotlin (Kotlin DSL, build.gradle.kts). Desde la
+# distribución oficial y no vía apt: Debian no lo empaqueta en una versión utilizable y el
+# wrapper (`./gradlew`) de cada proyecto, cuando exista, se impondrá igualmente sobre esta.
+# Esta instalación es la que permite arrancar un proyecto desde cero (`gradle init`) antes de
+# que exista wrapper alguno.
+ARG GRADLE_VERSION=9.7.1
+RUN curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip \
+  && unzip -q /tmp/gradle.zip -d /opt \
+  && ln -s "/opt/gradle-${GRADLE_VERSION}" /opt/gradle \
+  && rm /tmp/gradle.zip
+
+ENV GRADLE_HOME=/opt/gradle
+ENV PATH="${GRADLE_HOME}/bin:${PATH}"
+
+# Maven, además de Gradle: Kotlin/JVM se usa también con Maven (kotlin-maven-plugin), sobre todo
+# en proyectos Spring Boot que arrastran esa convención. Desde el binario oficial de Apache y no
+# vía apt por el mismo motivo que en la variante java: el paquete `maven` de Debian depende de
+# default-jre-headless y arrastraría un segundo JDK/17 aparte del Temurin 21 de arriba.
+ARG MAVEN_VERSION=3.9.16
+RUN curl -fsSL "https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" -o /tmp/maven.tar.gz \
+  && tar -xzf /tmp/maven.tar.gz -C /opt \
+  && ln -s "/opt/apache-maven-${MAVEN_VERSION}" /opt/maven \
+  && rm /tmp/maven.tar.gz
+
+ENV MAVEN_HOME=/opt/maven
+ENV PATH="${MAVEN_HOME}/bin:${PATH}"
+
+# Compilador de Kotlin por línea de comandos (`kotlinc`, `kotlin`, `kotlinc-js`...). Gradle/Maven
+# bajan su propia versión del compilador según lo que declare el proyecto; esto es lo que permite
+# compilar o ejecutar un .kt suelto —y usar el REPL— sin montar un build completo alrededor.
+ARG KOTLIN_VERSION=2.4.10
+RUN curl -fsSL "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip" -o /tmp/kotlin.zip \
+  && unzip -q /tmp/kotlin.zip -d /opt \
+  && rm /tmp/kotlin.zip
+
+ENV KOTLIN_HOME=/opt/kotlinc
+ENV PATH="${KOTLIN_HOME}/bin:${PATH}"
+
+# Kotlin Language Server (headless, habla LSP por stdio) — el análogo en esta variante del
+# `jdtls` de la variante java: se instala el runtime, y conectarle un cliente LSP es una capa
+# aparte, no verificada todavía en este proyecto. Trae su propio compilador de Kotlin embebido
+# como motor de análisis, con versión propia e independiente del `kotlinc` de arriba: no hay que
+# intentar alinearlas.
+ARG KOTLIN_LSP_VERSION=1.3.13
+RUN curl -fsSL "https://github.com/fwcd/kotlin-language-server/releases/download/${KOTLIN_LSP_VERSION}/server.zip" -o /tmp/kotlin-lsp.zip \
+  && unzip -q /tmp/kotlin-lsp.zip -d /opt/kotlin-language-server \
+  && rm /tmp/kotlin-lsp.zip \
+  && chmod +x /opt/kotlin-language-server/server/bin/kotlin-language-server \
+  && ln -s /opt/kotlin-language-server/server/bin/kotlin-language-server /usr/local/bin/kotlin-language-server
+
+# ktlint — linter y formateador estándar de facto de Kotlin (aplica la guía de estilo oficial de
+# JetBrains). Binario autocontenido: le da al agente una forma de verificar y arreglar estilo sin
+# depender de que el proyecto lo tenga cableado en su build.
+ARG KTLINT_VERSION=1.8.0
+RUN curl -fsSL "https://github.com/ktlint/ktlint/releases/download/${KTLINT_VERSION}/ktlint" -o /usr/local/bin/ktlint \
+  && chmod +x /usr/local/bin/ktlint
+
+# Python 3.14. No está en los repos de Debian bookworm (trae 3.11), así que se instala con uv
+# (gestor de versiones de Python de Astral, trae builds oficiales precompilados de
+# python-build-standalone — nada de compilar desde fuente). No se toca /usr/bin/python3 (el
+# 3.11 del sistema) para no romper herramientas de Debian que dependan de esa versión exacta.
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:${PATH}"
+RUN uv python install 3.14 \
+  && ln -sf "$(uv python find 3.14)" /usr/local/bin/python3.14 \
+  && ln -sf /usr/local/bin/python3.14 /usr/local/bin/python
+
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+WORKDIR /workspace
+
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY docker/pi-link-broker.sh /usr/local/bin/pi-link-broker.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/pi-link-broker.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["--link"]

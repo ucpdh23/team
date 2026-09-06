@@ -79,7 +79,10 @@ whom.
 - [`../README.md`](../README.md) — the role model, how to run and connect to the containers,
   authenticate, and troubleshoot.
 - [`../ARCHITECTURE.md`](../ARCHITECTURE.md) — technical detail: how pi-link achieves
-  cross-container discovery, and how `backend`'s headless Eclipse is wired up.
+  cross-container discovery, how `backend` ships several language variants of its image, and
+  how its headless Eclipse (java variant) is wired up.
 - `agents/<role>/AGENTS.md` — the context each agent itself loads on startup (its own role,
   who the rest of the team is, and how to use pi-link). This is written for the agents, not
   for humans, but it's worth skimming to understand what each one already "knows" by default.
+  `backend` has one per language variant (`AGENTS.java.md`, `AGENTS.kotlin.md`) — the one
+  that gets mounted depends on `BACKEND_STACK`, see the README.

@@ -1,6 +1,11 @@
-# Dockerfile específico del rol backend (ver agents/backend/AGENTS.md — Java 21 + Maven como
-# stack asumido, Python 3.14 disponible para scripts de apoyo). Separado de Dockerfile.pi
-# (manager/frontend/devops) para no inflar esas imágenes con un toolchain que no necesitan.
+# Dockerfile de la variante **java** del rol backend (ver agents/backend/AGENTS.java.md — Java 21
+# + Maven como stack asumido, Python 3.14 disponible para scripts de apoyo). Es la variante por
+# defecto; se elige con BACKEND_STACK=java en .env (`python setup.py --init` lo pregunta), y la
+# alternativa actual es docker/Dockerfile.backend.kotlin. Ver README ("Backend stack") y
+# ARCHITECTURE.md ("Backend stack variants") para el mecanismo completo.
+#
+# Separado de Dockerfile.pi (manager/frontend/devops) para no inflar esas imágenes con un
+# toolchain que no necesitan.
 FROM node:24-bookworm-slim
 
 # Sin esto, los bytes multibyte UTF-8 (tildes, ¡¿, ñ) llegan mal a tmux/pi porque la imagen

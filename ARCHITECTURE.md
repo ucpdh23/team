@@ -1,9 +1,9 @@
 # Architecture
 
 Technical/internal detail for **team-pi**: how the 5 containers discover and talk to each
-other over pi-link, and how `backend`'s headless Eclipse (`jdtbridge`) is wired up. For what
-this project is, why it's organized into 5 roles, and the commands to actually run it, see
-[`README.md`](README.md).
+other over pi-link, how a role can ship more than one language variant of its image, and how
+the `java` backend's headless Eclipse (`jdtbridge`) is wired up. For what this project is, why
+it's organized into 5 roles, and the commands to actually run it, see [`README.md`](README.md).
 
 ## Container topology & the pi-link mesh
 
@@ -60,11 +60,59 @@ working or not, and reacts with its own reconnection logic (2-5s randomized back
 hub container dies, the rest reconnect on their own, following pi-link's own procedure,
 without any external script ever telling the `pi` process anything directly.
 
+## Backend stack variants
+
+`backend`'s **role** in the team is fixed; the **language** it works in isn't. A stack variant
+is selected with `BACKEND_STACK` in `.env` (`java` by default, `kotlin` the other one today),
+and it resolves entirely through Compose's own variable interpolation — no override files, no
+profiles, no second service definition:
+
+```yaml
+build:
+  dockerfile: docker/Dockerfile.backend.${BACKEND_STACK:-java}
+image: team-pi-backend-${BACKEND_STACK:-java}
+volumes:
+  - ./agents/backend/AGENTS.${BACKEND_STACK:-java}.md:/root/.pi/agent/AGENTS.md
+```
+
+So a variant is exactly **two files** — the image that builds its toolchain
+(`docker/Dockerfile.backend.<stack>`) and the team context its agent boots with
+(`agents/backend/AGENTS.<stack>.md`) — and nothing else in the service changes: same
+container name, same network, same volumes, same pi-link wiring, same Azure DevOps
+credentials. That's the point: the stack decides what's *inside* the container, never the
+role's place in the team, so `manager`, `frontend` and `cypress` don't need to know or care
+which one is running.
+
+Two consequences worth stating explicitly:
+
+- **The `:-java` defaults are load-bearing.** An existing `.env` written before this
+  mechanism existed has no `BACKEND_STACK` at all and keeps building the Java image exactly as
+  before — the variable is optional, not required.
+- **A variant is only offered once both files exist.** `setup.py --init` doesn't carry a
+  hardcoded list of languages: it globs `docker/Dockerfile.backend.*` and keeps the stacks
+  that also have a matching `agents/backend/AGENTS.<stack>.md`, then asks as a numbered menu
+  and validates the answer. Adding `python` or `go` later is dropping in that pair of files —
+  `setup.py`, `docker-compose.yml` and `.env.example` don't need to be touched, and a
+  half-added variant never gets offered.
+
+What the variants don't share is the GUI machinery. The `java` image carries a full headless
+Eclipse (next section) and therefore Xvfb, x11vnc and noVNC; `kotlin` carries none of it,
+because Eclipse's Kotlin support is discontinued and the equivalent there is a plain LSP
+server (Kotlin Language Server) that needs no framebuffer. `entrypoint.sh` is shared by all
+variants all the same: its whole Eclipse/VNC block is already gated on `/opt/eclipse/eclipse`
+existing in the image, so on a Kotlin container it simply doesn't run — no per-variant
+entrypoint is needed. For the same reason the `backend` service keeps its `6080` port mapping
+and its `backend-eclipse-workspace` volume unconditionally: on a variant with no Eclipse
+nothing listens on that port and the volume is one more empty directory, which is a smaller
+price than splitting the service definition in two.
+
 ## Java code intelligence in `backend`: jdtbridge + headless Eclipse
 
-`backend`'s toolchain (see `docker/Dockerfile.backend` and
-[`agents/backend/AGENTS.md`](agents/backend/AGENTS.md)) includes two independent layers of
-Java tooling:
+Everything in this section applies to the **`java` variant only** (`BACKEND_STACK=java`, the
+default) — see the previous section. The `java` backend's toolchain (see
+`docker/Dockerfile.backend.java` and
+[`agents/backend/AGENTS.java.md`](agents/backend/AGENTS.java.md)) includes two independent
+layers of Java tooling:
 
 - **Eclipse JDT Language Server** (`jdtls`, headless, no GUI) — a standalone LSP server
   talking over stdio. The runtime is installed; connecting an LSP client to it is a separate
@@ -81,7 +129,7 @@ still needs Eclipse's own GUI (`File → Import → Existing Maven Projects`, fo
 it's also the only way to get a real graphical Java debugger (breakpoints, variable
 inspection) rather than just console output. For that, the same Xvfb display Eclipse already
 runs on is exposed over VNC (`x11vnc` + `websockify`/noVNC) — see [Eclipse GUI
-access](README.md#eclipse-gui-access-backend-via-novnc) in the README for the commands to
+access](README.md#eclipse-gui-access-backend-java-variant-via-novnc) in the README for the commands to
 enable and reach it.
 
 Once a project is imported this way, `jdt`/`jdtbridge` picks it up immediately — the import
