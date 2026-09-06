@@ -121,10 +121,12 @@ ARG KTLINT_VERSION=1.8.0
 RUN curl -fsSL "https://github.com/ktlint/ktlint/releases/download/${KTLINT_VERSION}/ktlint" -o /usr/local/bin/ktlint \
   && chmod +x /usr/local/bin/ktlint
 
-# Python 3.14. No está en los repos de Debian bookworm (trae 3.11), así que se instala con uv
-# (gestor de versiones de Python de Astral, trae builds oficiales precompilados de
-# python-build-standalone — nada de compilar desde fuente). No se toca /usr/bin/python3 (el
-# 3.11 del sistema) para no romper herramientas de Debian que dependan de esa versión exacta.
+# Python 3.14 para scripts de apoyo (no es el lenguaje de la aplicación en esta variante). Se
+# instala con uv (gestor de versiones de Python de Astral, trae builds oficiales precompilados
+# de python-build-standalone — nada de compilar desde fuente) porque la imagen base
+# node:*-bookworm-slim no trae Python en absoluto: los symlinks de abajo son el único
+# intérprete del contenedor. Se dejan en /usr/local/bin, no en /usr/bin, para no colisionar con
+# nada que apt pueda instalar después.
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 RUN uv python install 3.14 \

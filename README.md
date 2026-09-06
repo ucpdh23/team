@@ -33,7 +33,7 @@ Create a 5-role system to handle development activities. 5 members as a small si
 | Role | Container | Responsibility |
 |---|---|---|
 | **manager** | `pi-manager` | Coordinates the team, breaks down and prioritizes tasks, synthesizes results, main point of contact for the human in charge. |
-| **backend** | `pi-backend` | Backend service/API development — language picked per project, `java` or `kotlin` today (see [Backend stack](#backend-stack)). |
+| **backend** | `pi-backend` | Backend service/API development — language picked per project, `java`, `kotlin` or `python` today (see [Backend stack](#backend-stack)). |
 | **frontend** | `pi-frontend` | User interface development (stack TBD, likely Angular). |
 | **devops** | `pi-devops` | Infrastructure, CI/CD, deployment and observability — including this very infrastructure. |
 | **cypress** | `pi-cypress` | End-to-end testing of backend + frontend together. |
@@ -85,6 +85,7 @@ backend's headless Eclipse (`jdtbridge`) is wired up — lives in
 │   ├── Dockerfile.pi           # base image: manager, frontend (backend/devops have their own)
 │   ├── Dockerfile.backend.java   # backend, java variant: Java/Maven + headless Eclipse/jdtbridge
 │   ├── Dockerfile.backend.kotlin # backend, kotlin variant: Kotlin/Gradle/Maven + Kotlin LS
+│   ├── Dockerfile.backend.python # backend, python variant: Python 3.14/uv + ruff/mypy/pyright
 │   ├── Dockerfile.devops       # devops image: adds Docker CLI (Docker-outside-of-Docker, see ARCHITECTURE.md)
 │   ├── Dockerfile.cypress      # variant on top of cypress/included (TODO: pin version)
 │   ├── entrypoint.sh           # installs pi packages, starts broker + tmux session, watchdogs
@@ -94,7 +95,8 @@ backend's headless Eclipse (`jdtbridge`) is wired up — lives in
 │   └── <role>/
 │       ├── AGENTS.md           # team context, mounted at ~/.pi/agent/AGENTS.md (global for pi)
 │       │                        # backend has one per stack instead: AGENTS.java.md,
-│       │                        # AGENTS.kotlin.md — see "Backend stack" below
+│       │                        # AGENTS.kotlin.md, AGENTS.python.md — see "Backend stack"
+│       │                        # below
 │       └── pi/
 │           └── extensions/     # mounted at ~/.pi/agent/extensions in the container — global
 │                                # pi extensions specific to this role (see "Plugins/packages
@@ -137,7 +139,7 @@ by hand. Variables:
 |---|---|
 | `ANTHROPIC_API_KEY` | Optional — see [Authentication](#authentication) below. |
 | `CONTAINER_PREFIX` | Prefix for the 5 container names (default `pi`, i.e. `pi-manager`, ...). Change it to run several instances of this project on the same machine without name clashes. |
-| `BACKEND_STACK` | Language/toolchain of the `backend` role: `java` (default) or `kotlin`. Picks which image that container is built from and which team context its agent boots with — see [Backend stack](#backend-stack). Optional: an `.env` without it behaves exactly as before, building the Java image. |
+| `BACKEND_STACK` | Language/toolchain of the `backend` role: `java` (default), `kotlin` or `python`. Picks which image that container is built from and which team context its agent boots with — see [Backend stack](#backend-stack). Optional: an `.env` without it behaves exactly as before, building the Java image. |
 | `<ROLE>_REPO_URL` | Git remote (origin) URL for that role's real repository — SSH or HTTPS. Exposed inside each container as `REPO_URL`. Empty until each role's repo/stack is decided. `/workspace` is a named Docker volume (`<role>-workspace`), not a bind mount to this repo, so it's always empty on first run: `python setup.py --git-clone` clones it there for every role that has one set (or let the agent do it itself) without worrying about clashing with anything this project mounts — pi's own per-role state (`AGENTS.md`, extensions, login) lives entirely under `~/.pi/agent` instead, never under `/workspace`. |
 | `<ROLE>_GIT_TOKEN` | Access token (PAT) for that role's `REPO_URL` when it's `https://` — scope it to just that one repo (GitHub fine-grained PAT, or an Azure DevOps PAT limited to `Code: Read & Write`). Exposed inside each container as `GIT_TOKEN`; `entrypoint.sh` wires it into a git credential helper that reads it from the environment at auth time, so it's never written to the remote URL or `.git/config`. Leave it empty and use an SSH `REPO_URL` instead if you'd rather set up SSH manually for a given role — the two don't conflict. |
 | `ADO_ORGANIZATION_URL`, `ADO_PROJECT` | Shared Azure DevOps organization/project (see `docs/work-procedures.md`). Exposed as-is inside every container; `entrypoint.sh` runs `az devops configure --defaults organization=$ADO_ORGANIZATION_URL project=$ADO_PROJECT` automatically on every start, so `az boards`/`az repos` commands don't need `--organization`/`--project` in that role's session. |
@@ -172,9 +174,11 @@ python setup.py --stop   # same as docker compose down
 |---|---|
 | `java` (default) | Java 21 (Temurin), Maven, Eclipse JDT Language Server, and a full headless Eclipse with [jdtbridge](https://github.com/kaluchi/jdtbridge) driven through the `jdt` CLI — plus [GUI access over noVNC](#eclipse-gui-access-backend-java-variant-via-novnc). |
 | `kotlin` | Kotlin 2 (`kotlinc` + REPL) on JDK 21 (Temurin), Gradle *and* Maven (both are used in the Kotlin/JVM world; the real project decides), [Kotlin Language Server](https://github.com/fwcd/kotlin-language-server), and `ktlint` for the official style guide. |
+| `python` | Python 3.14 with [uv](https://docs.astral.sh/uv/) as project/dependency manager, [ruff](https://docs.astral.sh/ruff/) to lint and format, and both [pyright](https://github.com/microsoft/pyright) (the language server, and a type checker on its own) and `mypy` — they aren't interchangeable, so the real project picks. A C toolchain is included for dependencies that still build from source. |
 
-Both also carry Python 3.14 for support scripts, `git`/`gh`/`az` like every other role, and
-the same pi/pi-link setup.
+All of them carry `git`/`gh`/`az` like every other role and the same pi/pi-link setup; `java`
+and `kotlin` also carry Python 3.14 for support scripts (in the `python` variant it's the
+application's own language, with the tooling to match).
 
 `python setup.py --init` asks for this as a menu; you can also set it by hand in `.env`. It's
 optional — an `.env` that doesn't mention `BACKEND_STACK` at all builds the Java image, same
@@ -184,7 +188,8 @@ as before this existed. After changing it, rebuild that container:
 python setup.py --start   # docker compose up -d --build
 ```
 
-Each variant builds its own image (`team-pi-backend-java`, `team-pi-backend-kotlin`), so
+Each variant builds its own image (`team-pi-backend-java`, `team-pi-backend-kotlin`,
+`team-pi-backend-python`), so
 switching back doesn't mean rebuilding from scratch. What does **not** reset is that role's
 state: `/workspace` and its pi login live in named volumes that survive the switch, so if the
 new stack means a different repository, change `BACKEND_REPO_URL` too and clear
@@ -199,15 +204,16 @@ is discontinued, and code intelligence there goes through the Kotlin Language Se
 ### Adding a new backend stack
 
 A stack is **two files**, and nothing else — no changes to `docker-compose.yml`, `setup.py` or
-`.env.example`. To add `python`, say:
+`.env.example`. To add `go`, say:
 
-1. `docker/Dockerfile.backend.python` — the image, building whatever that toolchain needs. Use
-   `Dockerfile.backend.kotlin` as the starting point rather than the Java one: it's the
-   variant without the Eclipse/Xvfb/VNC machinery. Keep the shared tail as is (`gh`, `az`,
-   the pi install, `WORKDIR /workspace`, the entrypoint) — `entrypoint.sh` is shared by every
-   variant and already skips its Eclipse/VNC block when the image has no `/opt/eclipse`.
-2. `agents/backend/AGENTS.python.md` — the team context its agent boots with. Copy
-   `AGENTS.kotlin.md` and rewrite the "Your role" opening and the "Stack and architecture"
+1. `docker/Dockerfile.backend.go` — the image, building whatever that toolchain needs. Use
+   `Dockerfile.backend.kotlin` or `.python` as the starting point rather than the Java one:
+   they're the variants without the Eclipse/Xvfb/VNC machinery. Keep the shared tail as is
+   (`gh`, `az`, the pi install, `WORKDIR /workspace`, the entrypoint) — `entrypoint.sh` is
+   shared by every variant and already skips its Eclipse/VNC block when the image has no
+   `/opt/eclipse`.
+2. `agents/backend/AGENTS.go.md` — the team context its agent boots with. Copy
+   `AGENTS.python.md` and rewrite the "Your role" opening and the "Stack and architecture"
    section; everything from *The rest of the team* to the end of *Team work procedure* is
    about the role in the team, not the language, and should stay identical across variants.
 
@@ -421,7 +427,7 @@ docker exec pi-<role> tmux capture-pane -t pi -p        # pi-link's on-screen st
   too, adding its matching toolchain (flagged with `TODO` in the file itself; backend and
   devops already have their own images, and backend one per stack variant). If more than one
   frontend stack ever makes sense, it follows the same `BACKEND_STACK` pattern.
-- **More backend stacks** — `python`, `go` and others, following [the two-file
+- **More backend stacks** — `go` and others, following [the two-file
   recipe](#adding-a-new-backend-stack) below.
 - **Headless Eclipse pi extension** for Java code management, pending integration once the
   backend stack is confirmed.

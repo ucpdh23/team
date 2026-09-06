@@ -41,7 +41,8 @@ WORKDIR /workspace
 
 # backend ya tiene los suyos, uno por variante de lenguaje seleccionable con BACKEND_STACK
 # (docker/Dockerfile.backend.java: Java 21/Temurin, Maven, Eclipse JDT LS y Eclipse headless;
-# docker/Dockerfile.backend.kotlin: Kotlin 2, Gradle, Maven, Kotlin Language Server), y devops
+# docker/Dockerfile.backend.kotlin: Kotlin 2, Gradle, Maven, Kotlin Language Server;
+# docker/Dockerfile.backend.python: Python 3.14, uv, ruff, mypy, pyright), y devops
 # también (docker/Dockerfile.devops: cliente Docker para Docker-outside-of-Docker, ver
 # ARCHITECTURE.md). Sigue pendiente para frontend (Angular u otro) — cuando se decida su stack,
 # este Dockerfile compartido se dividirá también para él, siguiendo el mismo patrón de

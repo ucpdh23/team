@@ -63,9 +63,9 @@ without any external script ever telling the `pi` process anything directly.
 ## Backend stack variants
 
 `backend`'s **role** in the team is fixed; the **language** it works in isn't. A stack variant
-is selected with `BACKEND_STACK` in `.env` (`java` by default, `kotlin` the other one today),
-and it resolves entirely through Compose's own variable interpolation — no override files, no
-profiles, no second service definition:
+is selected with `BACKEND_STACK` in `.env` (`java` by default, plus `kotlin` and `python`
+today), and it resolves entirely through Compose's own variable interpolation — no override
+files, no profiles, no second service definition:
 
 ```yaml
 build:
@@ -91,17 +91,18 @@ Two consequences worth stating explicitly:
 - **A variant is only offered once both files exist.** `setup.py --init` doesn't carry a
   hardcoded list of languages: it globs `docker/Dockerfile.backend.*` and keeps the stacks
   that also have a matching `agents/backend/AGENTS.<stack>.md`, then asks as a numbered menu
-  and validates the answer. Adding `python` or `go` later is dropping in that pair of files —
-  `setup.py`, `docker-compose.yml` and `.env.example` don't need to be touched, and a
-  half-added variant never gets offered.
+  and validates the answer. `python` was added exactly that way — two files, nothing else — and
+  `go` or any other would be the same: `setup.py`, `docker-compose.yml` and `.env.example`
+  don't need to be touched, and a half-added variant never gets offered.
 
 What the variants don't share is the GUI machinery. The `java` image carries a full headless
-Eclipse (next section) and therefore Xvfb, x11vnc and noVNC; `kotlin` carries none of it,
-because Eclipse's Kotlin support is discontinued and the equivalent there is a plain LSP
-server (Kotlin Language Server) that needs no framebuffer. `entrypoint.sh` is shared by all
+Eclipse (next section) and therefore Xvfb, x11vnc and noVNC; `kotlin` and `python` carry none
+of it — Eclipse's Kotlin support is discontinued, Python was never in that ecosystem, and the
+equivalent in both is a plain LSP server (Kotlin Language Server, pyright) that needs no
+framebuffer. `entrypoint.sh` is shared by all
 variants all the same: its whole Eclipse/VNC block is already gated on `/opt/eclipse/eclipse`
-existing in the image, so on a Kotlin container it simply doesn't run — no per-variant
-entrypoint is needed. For the same reason the `backend` service keeps its `6080` port mapping
+existing in the image, so on a Kotlin or Python container it simply doesn't run — no
+per-variant entrypoint is needed. For the same reason the `backend` service keeps its `6080` port mapping
 and its `backend-eclipse-workspace` volume unconditionally: on a variant with no Eclipse
 nothing listens on that port and the volume is one more empty directory, which is a smaller
 price than splitting the service definition in two.

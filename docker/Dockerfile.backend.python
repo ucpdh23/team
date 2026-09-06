@@ -1,0 +1,101 @@
+# Dockerfile de la variante **python** del rol backend (ver agents/backend/AGENTS.python.md).
+# Se elige con BACKEND_STACK=python en .env (`python setup.py --init` lo pregunta); la variante
+# por defecto es docker/Dockerfile.backend.java. Ver README ("Backend stack") y ARCHITECTURE.md
+# ("Backend stack variants") para el mecanismo completo.
+#
+# Igual que la variante kotlin, aquí NO hay Eclipse ni GUI: la inteligencia de código va por un
+# servidor LSP headless (pyright, más abajo) y no hay nada que servir por VNC. entrypoint.sh ya
+# condiciona ese bloque a que exista /opt/eclipse, así que se salta solo.
+#
+# A diferencia de las variantes java/kotlin —donde Python está solo como lenguaje de scripts de
+# apoyo— aquí Python es el lenguaje de la aplicación: es el mismo Python 3.14 instalado de la
+# misma forma, pero acompañado del gestor de proyectos/dependencias y del utillaje de calidad
+# que un backend real necesita.
+FROM node:24-bookworm-slim
+
+# Sin esto, los bytes multibyte UTF-8 (tildes, ¡¿, ñ) llegan mal a tmux/pi porque la imagen
+# slim viene en locale C/POSIX por defecto. C.UTF-8 ya viene con glibc, no requiere generar
+# locales.
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# build-essential/pkg-config: no hacen falta para el propio Python, sino para las dependencias
+# del proyecto que aún publiquen extensiones en C sin rueda precompilada para esta plataforma
+# (el caso típico: un driver de base de datos). Sin ellas, ese `uv pip install` falla con un
+# error de compilador que no dice gran cosa.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep curl wget openssh-client tmux socat util-linux ncurses-term gnupg unzip build-essential pkg-config \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY docker/generate-tmux-conf.sh /usr/local/bin/generate-tmux-conf.sh
+RUN chmod +x /usr/local/bin/generate-tmux-conf.sh && /usr/local/bin/generate-tmux-conf.sh
+
+# GitHub CLI (gh)
+RUN mkdir -p -m 755 /usr/share/keyrings \
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends gh \
+  && rm -rf /var/lib/apt/lists/*
+
+# Azure CLI + extensión azure-devops. Se instala vía apt (no con pip/uv) a propósito: trae su
+# propio intérprete embebido, así que no se mezcla con el Python 3.14 de la aplicación ni le
+# impone versiones de sus dependencias.
+RUN mkdir -p /etc/apt/keyrings \
+  && curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg \
+  && chmod go+r /etc/apt/keyrings/microsoft.gpg \
+  && . /etc/os-release \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/azure-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends azure-cli \
+  && az extension add --name azure-devops \
+  && rm -rf /var/lib/apt/lists/*
+
+# Python 3.14 + uv. Mismo procedimiento que en las variantes java/kotlin (uv trae builds
+# oficiales precompilados de python-build-standalone, nada de compilar desde fuente; Debian
+# bookworm solo trae 3.11), pero aquí uv se queda además como gestor de proyecto y dependencias
+# del backend: `uv sync`, `uv run`, `uv add`, y los entornos virtuales del proyecto.
+# La imagen base node:*-bookworm-slim no trae Python alguno (y azure-cli, instalado por apt más
+# arriba, embebe el suyo propio), así que este es el único intérprete del contenedor:
+# `python` y `python3.14` apuntan a él. Aun así, las dependencias del proyecto van en el
+# entorno virtual que gestiona uv, no en este intérprete.
+ARG UV_VERSION=0.12.10
+RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+ENV PATH="/root/.local/bin:${PATH}"
+RUN uv python install 3.14 \
+  && ln -sf "$(uv python find 3.14)" /usr/local/bin/python3.14 \
+  && ln -sf /usr/local/bin/python3.14 /usr/local/bin/python
+
+# Utillaje de calidad, instalado con `uv tool` (cada uno en su propio entorno aislado, con su
+# shim en ~/.local/bin): así ninguno impone sus dependencias al entorno del proyecto, y el
+# agente puede usarlos aunque el repositorio todavía no exista o no los declare.
+#
+# - ruff: linter y formateador (`ruff check`, `ruff format`), el estándar de facto actual.
+# - mypy: comprobador estático de tipos. Se instala además de pyright porque no son
+#   intercambiables: pyright es lo que hay detrás del LSP, pero mypy sigue siendo lo que la
+#   mayoría de proyectos cablea en CI, y sus diagnósticos no coinciden.
+ARG RUFF_VERSION=0.16.6
+ARG MYPY_VERSION=2.3.1
+RUN uv tool install "ruff==${RUFF_VERSION}" \
+  && uv tool install "mypy==${MYPY_VERSION}"
+
+# pyright — servidor de lenguaje headless (habla LSP por stdio), el análogo en esta variante del
+# `jdtls` de java o del Kotlin Language Server de kotlin: se instala el runtime, y conectarle un
+# cliente LSP es una capa aparte, no verificada todavía en este proyecto. Su CLI (`pyright`)
+# también sirve por sí sola para comprobar tipos sin cliente alguno.
+# Se instala por npm porque es su distribución de referencia y Node ya está en la imagen; usa el
+# intérprete que se le indique con `--pythonpath` o el del entorno del proyecto.
+ARG PYRIGHT_VERSION=1.1.413
+RUN npm install -g "pyright@${PYRIGHT_VERSION}"
+
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+WORKDIR /workspace
+
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY docker/pi-link-broker.sh /usr/local/bin/pi-link-broker.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/pi-link-broker.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["--link"]

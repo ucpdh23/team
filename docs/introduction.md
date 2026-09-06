@@ -84,5 +84,6 @@ whom.
 - `agents/<role>/AGENTS.md` — the context each agent itself loads on startup (its own role,
   who the rest of the team is, and how to use pi-link). This is written for the agents, not
   for humans, but it's worth skimming to understand what each one already "knows" by default.
-  `backend` has one per language variant (`AGENTS.java.md`, `AGENTS.kotlin.md`) — the one
+  `backend` has one per language variant (`AGENTS.java.md`, `AGENTS.kotlin.md`,
+  `AGENTS.python.md`) — the one
   that gets mounted depends on `BACKEND_STACK`, see the README.
