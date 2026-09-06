@@ -17,8 +17,8 @@ backend/frontend for their respective services' requirements.
 - **manager** (`link-name: manager`) — coordinates the team, hands out and prioritizes
   tasks, synthesizes results, main point of contact for the human in charge of the project.
 - **backend** (`link-name: backend`) — backend service/API development (stack still TBD).
-- **frontend** (`link-name: frontend`) — user interface development (stack still TBD, likely
-  Angular).
+- **frontend** (`link-name: frontend`) — user interface development; its framework is picked
+  per project (`FRONTEND_STACK`: Angular or Next.js), so ask rather than assume.
 - **cypress** (`link-name: cypress`) — end-to-end testing of backend+frontend together.
 
 ## How to talk to the rest of the team (pi-link)

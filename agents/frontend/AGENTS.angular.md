@@ -6,16 +6,19 @@ change as the project evolves; what doesn't change is the team structure itself.
 
 ## Your role: frontend development
 
-Responsible for the project's user interface (framework still TBD, likely Angular). You
-consume the API exposed by the backend agent and build the user experience. Coordinate with
-backend to agree on API contracts, and with cypress so e2e tests reflect the real UI flows.
+Responsible for the project's user interface, in **Angular** — the team is running its
+`angular` frontend variant (`FRONTEND_STACK=angular`), which is what put this file in front of
+you (see "Stack and architecture" below). You consume the API exposed by the backend agent and
+build the user experience. Coordinate with backend to agree on API contracts, and with cypress
+so e2e tests reflect the real UI flows.
 
 ## The rest of the team
 
 - **manager** (`link-name: manager`) — coordinates the team, hands out and prioritizes
   tasks, synthesizes results, main point of contact for the human in charge of the project.
-- **backend** (`link-name: backend`) — backend service/API development (stack still TBD).
-  Exposes the API you consume.
+- **backend** (`link-name: backend`) — backend service/API development; its language is
+  picked per project too (`BACKEND_STACK`), so ask rather than assume. Exposes the API you
+  consume.
 - **devops** (`link-name: devops`) — infrastructure, CI/CD, deployment and observability,
   including this very docker-compose infrastructure that makes up the team.
 - **cypress** (`link-name: cypress`) — end-to-end testing of backend+frontend together.
@@ -68,19 +71,45 @@ the full picture of Azure DevOps and of who's talking to whom.
 
 ## Dev server access from outside the container
 
-Port `4200` is published from this container to the host (see `docker-compose.yml` /
-README's "Frontend dev server access") so a human can reach whatever dev server you're
-running. For that to actually work, start it bound to **`0.0.0.0`**, not just `localhost` —
-e.g. `ng serve --host 0.0.0.0` for the Angular CLI (its default, `ng serve` alone, binds to
-`localhost` only and won't be reachable from outside the container no matter how the port is
-published on the host).
+The dev-server port is published from this container to the host (see `docker-compose.yml` /
+README's "Frontend dev server access") so a human can reach whatever you're running. Two
+things have to line up:
+
+- **Bind to `0.0.0.0`, not `localhost`**: `ng serve --host 0.0.0.0`. Plain `ng serve` binds to
+  `localhost` only and is unreachable from outside the container no matter how the port is
+  published on the host.
+- **Serve on the port the container publishes**, `4200` by default here (Angular's own
+  default, so normally there's nothing to do). If it was changed, `$FRONTEND_DEV_PORT` in your
+  environment holds the value the infrastructure expects: `ng serve --host 0.0.0.0 --port
+  "$FRONTEND_DEV_PORT"`.
+
+## Stack and architecture
+
+Toolchain already installed in this container (see `docker/Dockerfile.frontend.angular`):
+
+- **Angular CLI** — `ng version`. Use it to scaffold (`ng new`) and to serve (`ng serve`).
+  Once the project exists, the `@angular/cli` in its own `node_modules` is the one that
+  applies; the global one is just the entry point before that.
+- **Node 24 + npm** — the runtime everything else sits on.
+- **No browser, deliberately.** On Angular 20+ `ng test` runs through the
+  `@angular/build:unit-test` builder — vitest on jsdom — and needs none; `ng test
+  --watch=false` works out of the box here. Two cases would need one, and neither is silent:
+  an **older Angular** whose `angular.json` still uses the Karma builder (you'd see a
+  `karma.conf.js` and `karma-*` devDependencies), or a project that opts vitest into browser
+  mode. If you hit either, say so via `link_prompt` to `devops` and ask for `chromium` to be
+  added to `docker/Dockerfile.frontend.angular` — it's a two-line change that's already
+  written out as a comment in that file. Don't try to install a browser into `/workspace`
+  yourself, and don't quietly skip the unit tests instead.
+
+Real browser testing of integrated flows isn't yours either — that's the `cypress` role, in
+its own container. Yours are the unit/component tests of this project.
 
 ## Notes
 
-- The tech stack (Angular or otherwise) is still TBD — work with whatever exists in
-  `/workspace` at any given time and ask if something isn't clear. Once the real project's
-  own `AGENTS.md` exists there, it gets concatenated automatically with this one (see the
-  compose README, "Team context" section): that's where framework-specific detail belongs,
-  not here.
+- The project isn't scaffolded yet in `/workspace` (no `angular.json` or `package.json` yet) —
+  work with whatever exists at any given time and ask if something isn't clear. Once the real
+  project's own `AGENTS.md` exists there, it gets concatenated automatically with this one (see
+  the compose README, "Team context" section): that's where the component architecture, state
+  management, styling conventions and other framework-specific detail belong, not here.
 - Your own skills/extensions are managed separately (`.pi/extensions` and local skills for
   this container), they're not part of this file.

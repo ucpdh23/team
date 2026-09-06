@@ -16,8 +16,8 @@ glue scripts); for everything else, delegate to whichever agent owns that role.
 
 - **backend** (`link-name: backend`) — backend service/API development (stack still TBD).
   Business logic, data model/persistence, API contract.
-- **frontend** (`link-name: frontend`) — user interface development (stack still TBD, likely
-  Angular). Consumes the backend API.
+- **frontend** (`link-name: frontend`) — user interface development; its framework is picked
+  per project (`FRONTEND_STACK`: Angular or Next.js). Consumes the backend API.
 - **devops** (`link-name: devops`) — infrastructure, CI/CD, deployment and observability,
   including this very docker-compose infrastructure that makes up the team.
 - **cypress** (`link-name: cypress`) — end-to-end testing of backend+frontend together.

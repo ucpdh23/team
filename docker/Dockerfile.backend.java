@@ -2,7 +2,7 @@
 # + Maven como stack asumido, Python 3.14 disponible para scripts de apoyo). Es la variante por
 # defecto; se elige con BACKEND_STACK=java en .env (`python setup.py --init` lo pregunta), y la
 # alternativa actual es docker/Dockerfile.backend.kotlin. Ver README ("Backend stack") y
-# ARCHITECTURE.md ("Backend stack variants") para el mecanismo completo.
+# ARCHITECTURE.md ("Stack variants") para el mecanismo completo.
 #
 # Separado de Dockerfile.pi (manager/frontend/devops) para no inflar esas imágenes con un
 # toolchain que no necesitan.

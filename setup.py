@@ -48,6 +48,7 @@ def discover_stacks(role: str) -> list[str]:
 # las opciones se resuelvan en el momento de preguntar (ver discover_stacks).
 ENV_CHOICES = {
     "BACKEND_STACK": lambda: discover_stacks("backend"),
+    "FRONTEND_STACK": lambda: discover_stacks("frontend"),
 }
 
 

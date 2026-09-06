@@ -44,7 +44,7 @@ services:
   # (agents/backend/AGENTS.<stack>.md); el resto del servicio —red, volúmenes, pi-link, ADO— es
   # idéntico, porque el stack solo cambia el toolchain de dentro, no el papel del rol en el
   # equipo. Añadir python/go/... es añadir ese par de ficheros, sin tocar este bloque. Ver
-  # README ("Backend stack") y ARCHITECTURE.md ("Backend stack variants").
+  # README ("Backend stack") y ARCHITECTURE.md ("Stack variants").
   backend:
     build:
       context: .
@@ -92,16 +92,26 @@ services:
       # directorio vacío más, mismo criterio que el mapeo del puerto VNC de arriba.
       - backend-eclipse-workspace:/root/eclipse-workspace
 
+  # Mismo mecanismo de variantes que backend, con su propia variable: FRONTEND_STACK elige el
+  # framework (`angular` por defecto, `nextjs` la alternativa). Aquí las dos imágenes se
+  # parecen mucho más entre sí que las de backend —ambas son Node y ambas testean sobre jsdom—
+  # y lo que de verdad diverge es el AGENTS.md de cada una, no el toolchain.
+  # Ver README ("Frontend stack") y ARCHITECTURE.md ("Stack variants").
   frontend:
     build:
       context: .
-      dockerfile: docker/Dockerfile.pi
-    image: team-pi-frontend
+      dockerfile: docker/Dockerfile.frontend.${FRONTEND_STACK:-angular}
+    image: team-pi-frontend-${FRONTEND_STACK:-angular}
     container_name: ${CONTAINER_PREFIX:-pi}-frontend
     environment:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=frontend
+      - FRONTEND_STACK=${FRONTEND_STACK:-angular}
+      # El agente lo lee para arrancar su servidor de desarrollo en el puerto que este
+      # servicio publica de verdad, en vez de dar por bueno el default de su framework
+      # (Angular 4200, Next 3000) — ver agents/frontend/AGENTS.<stack>.md.
+      - FRONTEND_DEV_PORT=${FRONTEND_DEV_PORT:-4200}
       - REPO_URL=${FRONTEND_REPO_URL:-}
       - GIT_TOKEN=${FRONTEND_GIT_TOKEN:-}
       - ADO_PAT=${FRONTEND_ADO_PAT:-}
@@ -115,8 +125,11 @@ services:
     # virtual de la VM, no por loopback, así que un publish 127.0.0.1 dentro de la VM nunca lo
     # ve. El servidor de desarrollo dentro del contenedor (p. ej. `ng serve`) debe escuchar en
     # 0.0.0.0, no solo en localhost, o esta publicación de puerto no llega a verlo.
+    # El lado del contenedor es FRONTEND_DEV_PORT y no un 4200 fijo: cada framework trae su
+    # propio default (Angular 4200, Next 3000) y la infraestructura no tiene por qué imponer
+    # el de uno. FRONTEND_PORT sigue siendo solo el puerto del host, para resolver choques ahí.
     ports:
-      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-4200}:4200"
+      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-4200}:${FRONTEND_DEV_PORT:-4200}"
     networks:
       - team-net
     volumes:
@@ -124,7 +137,7 @@ services:
       - frontend-workspace:/workspace
       - ./docs:/docs
       - frontend-pi-home:/root/.pi/agent
-      - ./agents/frontend/AGENTS.md:/root/.pi/agent/AGENTS.md
+      - ./agents/frontend/AGENTS.${FRONTEND_STACK:-angular}.md:/root/.pi/agent/AGENTS.md
       - ./agents/frontend/pi/extensions:/root/.pi/agent/extensions
       - ./cost-tracking/frontend:/root/.pi/cost-tracker
 

@@ -19,8 +19,9 @@ writing e2e tests.
 
 - **manager** (`link-name: manager`) — coordinates the team, hands out and prioritizes
   tasks, synthesizes results, main point of contact for the human in charge of the project.
-- **frontend** (`link-name: frontend`) — user interface development (stack still TBD, likely
-  Angular). Consumes your API.
+- **frontend** (`link-name: frontend`) — user interface development; its framework is picked
+  per project (`FRONTEND_STACK`: Angular or Next.js), so ask rather than assume. Consumes your
+  API.
 - **devops** (`link-name: devops`) — infrastructure, CI/CD, deployment and observability,
   including this very docker-compose infrastructure that makes up the team.
 - **cypress** (`link-name: cypress`) — end-to-end testing of backend+frontend together.

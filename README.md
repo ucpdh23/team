@@ -34,7 +34,7 @@ Create a 5-role system to handle development activities. 5 members as a small si
 |---|---|---|
 | **manager** | `pi-manager` | Coordinates the team, breaks down and prioritizes tasks, synthesizes results, main point of contact for the human in charge. |
 | **backend** | `pi-backend` | Backend service/API development — language picked per project, `java`, `kotlin` or `python` today (see [Backend stack](#backend-stack)). |
-| **frontend** | `pi-frontend` | User interface development (stack TBD, likely Angular). |
+| **frontend** | `pi-frontend` | User interface development — framework picked per project, `angular` or `nextjs` today (see [Frontend stack](#frontend-stack)). |
 | **devops** | `pi-devops` | Infrastructure, CI/CD, deployment and observability — including this very infrastructure. |
 | **cypress** | `pi-cypress` | End-to-end testing of backend + frontend together. |
 
@@ -58,8 +58,8 @@ backend's headless Eclipse (`jdtbridge`) is wired up — lives in
 ## Documentation
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — technical detail: the pi-link mesh/broker
-  mechanism, how a role ships several language variants of its image, and how the `java`
-  backend's headless Eclipse (`jdtbridge`) is wired up.
+  mechanism, how `backend` and `frontend` each ship several stack variants of their image, and
+  how the `java` backend's headless Eclipse (`jdtbridge`) is wired up.
 - [`docs/introduction.md`](docs/introduction.md) — a human-oriented introduction to the
   team, written for someone joining the project (what this is, who's on the team, how to
   work with it).
@@ -82,10 +82,12 @@ backend's headless Eclipse (`jdtbridge`) is wired up — lives in
 │   └── <role>/                  # mounted at ~/.pi/cost-tracker in that role's container — see
 │                                 # "LLM cost tracking" below
 ├── docker/
-│   ├── Dockerfile.pi           # base image: manager, frontend (backend/devops have their own)
+│   ├── Dockerfile.pi           # base image: manager (every other role has its own)
 │   ├── Dockerfile.backend.java   # backend, java variant: Java/Maven + headless Eclipse/jdtbridge
 │   ├── Dockerfile.backend.kotlin # backend, kotlin variant: Kotlin/Gradle/Maven + Kotlin LS
 │   ├── Dockerfile.backend.python # backend, python variant: Python 3.14/uv + ruff/mypy/pyright
+│   ├── Dockerfile.frontend.angular # frontend, angular variant: Angular CLI + chromium (ng test)
+│   ├── Dockerfile.frontend.nextjs  # frontend, nextjs variant: create-next-app, no browser
 │   ├── Dockerfile.devops       # devops image: adds Docker CLI (Docker-outside-of-Docker, see ARCHITECTURE.md)
 │   ├── Dockerfile.cypress      # variant on top of cypress/included (TODO: pin version)
 │   ├── entrypoint.sh           # installs pi packages, starts broker + tmux session, watchdogs
@@ -94,9 +96,9 @@ backend's headless Eclipse (`jdtbridge`) is wired up — lives in
 ├── agents/
 │   └── <role>/
 │       ├── AGENTS.md           # team context, mounted at ~/.pi/agent/AGENTS.md (global for pi)
-│       │                        # backend has one per stack instead: AGENTS.java.md,
-│       │                        # AGENTS.kotlin.md, AGENTS.python.md — see "Backend stack"
-│       │                        # below
+│       │                        # backend/frontend have one per stack instead:
+│       │                        # AGENTS.java.md, AGENTS.kotlin.md, AGENTS.python.md /
+│       │                        # AGENTS.angular.md, AGENTS.nextjs.md — see below
 │       └── pi/
 │           └── extensions/     # mounted at ~/.pi/agent/extensions in the container — global
 │                                # pi extensions specific to this role (see "Plugins/packages
@@ -140,12 +142,14 @@ by hand. Variables:
 | `ANTHROPIC_API_KEY` | Optional — see [Authentication](#authentication) below. |
 | `CONTAINER_PREFIX` | Prefix for the 5 container names (default `pi`, i.e. `pi-manager`, ...). Change it to run several instances of this project on the same machine without name clashes. |
 | `BACKEND_STACK` | Language/toolchain of the `backend` role: `java` (default), `kotlin` or `python`. Picks which image that container is built from and which team context its agent boots with — see [Backend stack](#backend-stack). Optional: an `.env` without it behaves exactly as before, building the Java image. |
+| `FRONTEND_STACK` | Framework of the `frontend` role: `angular` (default) or `nextjs`. Same mechanism as `BACKEND_STACK` — see [Frontend stack](#frontend-stack). Also optional. |
 | `<ROLE>_REPO_URL` | Git remote (origin) URL for that role's real repository — SSH or HTTPS. Exposed inside each container as `REPO_URL`. Empty until each role's repo/stack is decided. `/workspace` is a named Docker volume (`<role>-workspace`), not a bind mount to this repo, so it's always empty on first run: `python setup.py --git-clone` clones it there for every role that has one set (or let the agent do it itself) without worrying about clashing with anything this project mounts — pi's own per-role state (`AGENTS.md`, extensions, login) lives entirely under `~/.pi/agent` instead, never under `/workspace`. |
 | `<ROLE>_GIT_TOKEN` | Access token (PAT) for that role's `REPO_URL` when it's `https://` — scope it to just that one repo (GitHub fine-grained PAT, or an Azure DevOps PAT limited to `Code: Read & Write`). Exposed inside each container as `GIT_TOKEN`; `entrypoint.sh` wires it into a git credential helper that reads it from the environment at auth time, so it's never written to the remote URL or `.git/config`. Leave it empty and use an SSH `REPO_URL` instead if you'd rather set up SSH manually for a given role — the two don't conflict. |
 | `ADO_ORGANIZATION_URL`, `ADO_PROJECT` | Shared Azure DevOps organization/project (see `docs/work-procedures.md`). Exposed as-is inside every container; `entrypoint.sh` runs `az devops configure --defaults organization=$ADO_ORGANIZATION_URL project=$ADO_PROJECT` automatically on every start, so `az boards`/`az repos` commands don't need `--organization`/`--project` in that role's session. |
 | `<ROLE>_ADO_PAT` | Azure DevOps PAT for that role, used by `az boards`/`az repos` inside its container — see [Azure DevOps CLI authentication](#azure-devops-cli-authentication) below for exactly which scopes each role needs. Exposed inside each container as `ADO_PAT`; `entrypoint.sh` maps it to `AZURE_DEVOPS_EXT_PAT`, the environment variable az CLI's `azure-devops` extension reads automatically — no `az devops login` needed, and it's never written to disk. |
 | `BACKEND_VNC_PASSWORD`, `BACKEND_VNC_PORT`, `BACKEND_VNC_BIND` | **`BACKEND_STACK=java` only** — VNC/noVNC access to the `backend` container's headless Eclipse (see [Eclipse GUI access](#eclipse-gui-access-backend-java-variant-via-novnc) below). Empty password = VNC disabled (default). Port defaults to `6080`; bind defaults to `127.0.0.1` (set to `0.0.0.0` if running Docker inside WSL2). Other stacks ship no GUI, so these do nothing there. |
 | `FRONTEND_PORT`, `FRONTEND_BIND` | Access to the `frontend` container's dev server (see [Frontend dev server access](#frontend-dev-server-access) below). Same accessibility criteria as the backend VNC variables above: port defaults to `4200`; bind defaults to `127.0.0.1` (set to `0.0.0.0` if running Docker inside WSL2). |
+| `FRONTEND_DEV_PORT` | The port the dev server listens on **inside** the container (`FRONTEND_PORT` above is the host's — they're different things). Defaults to `4200`, Angular's own default; Next.js defaults to `3000`. Also exposed to the agent so it serves on the port actually published rather than on its framework's default. |
 
 To rebuild after changing any Dockerfile/script and pick up the changes without losing
 existing sessions or logins:
@@ -219,8 +223,46 @@ A stack is **two files**, and nothing else — no changes to `docker-compose.yml
 
 `setup.py --init` picks the new option up on its own: it globs `docker/Dockerfile.backend.*`
 and offers the stacks that also have a matching `AGENTS.<stack>.md`, so a half-added variant
-never shows up in the menu. See [`ARCHITECTURE.md`](ARCHITECTURE.md#backend-stack-variants)
+never shows up in the menu. See [`ARCHITECTURE.md`](ARCHITECTURE.md#stack-variants)
 for why it resolves this way.
+
+## Frontend stack
+
+Same mechanism as [Backend stack](#backend-stack) above, with its own variable —
+`FRONTEND_STACK` in `.env`:
+
+| `FRONTEND_STACK` | Toolchain in the container |
+|---|---|
+| `angular` (default) | Angular CLI (`ng new`, `ng serve`). No browser: on Angular 20+ `ng test` runs on vitest + jsdom and needs none. Dev server on `4200`. |
+| `nextjs` | `create-next-app` for scaffolding. Next itself is deliberately *not* global — it's a project dependency, so the version that applies is always the one the project declares. No browser: Next's scaffolded tests run on jsdom. Dev server on `3000`. |
+
+Unlike the backend variants, which diverge by entire toolchains, these two are both Node and
+both test on jsdom, so the images differ by little beyond which CLI is global. The substantial
+divergence is each variant's `AGENTS.md` — how to serve and on which port, and (for Next) the
+fact that server-side and browser-side code don't reach the API by the same hostname.
+
+Neither image carries a browser. If your Angular project is an older, Karma-based one that
+needs Chromium for `ng test`, `docker/Dockerfile.frontend.angular` has the two lines to add it
+written out as a comment — it's left out by default because a current `ng new` doesn't use it
+and it costs ~790 MB. Real browser testing is the `cypress` role's job anyway.
+
+**Ports.** Two different numbers, and it's worth keeping them straight:
+
+- `FRONTEND_PORT` — the port on the **host**, what you open in your browser. Change it to
+  avoid a collision on your machine.
+- `FRONTEND_DEV_PORT` — the port the dev server listens on **inside** the container. It
+  defaults to `4200`; with `nextjs` set it to `3000` (Next's default) or leave it at `4200`
+  and the agent will start Next there — both work, because the agent reads this variable and
+  serves on it rather than assuming its framework's default.
+
+Everything else works exactly as in the backend: each variant builds its own image
+(`team-pi-frontend-angular`, `team-pi-frontend-nextjs`), the variable is optional (an `.env`
+without it builds Angular, as before), `python setup.py --start` rebuilds after a change, and
+`/workspace` plus the pi login survive the switch — so change `FRONTEND_REPO_URL` too if the
+new framework means a different repository.
+
+Adding a third framework follows [the same two-file recipe](#adding-a-new-backend-stack) as the
+backend, with `frontend` in place of `backend` in both filenames.
 
 ## Authentication
 
@@ -330,15 +372,16 @@ instead, use `python setup.py --tmux backend`.
 
 ## Frontend dev server access
 
-The `frontend` container publishes port `4200` (the conventional Angular CLI dev-server
-port, `ng serve`'s default) to the host, so you can connect to whatever the agent has
-running there from outside the container — same accessibility criteria as the backend VNC
-setup above:
+The `frontend` container publishes its dev-server port to the host, so you can connect to
+whatever the agent has running there from outside the container — same accessibility criteria
+as the backend VNC setup above:
 
-1. Port and bind are configurable via `FRONTEND_PORT`/`FRONTEND_BIND` in `.env` (defaults:
-   `4200` and `127.0.0.1`) — no separate enable/disable switch here (unlike
-   `BACKEND_VNC_PASSWORD`): a dev server isn't authenticated by itself either way, so
-   there's no unauthenticated-by-default risk this port mapping newly introduces.
+1. Ports and bind are configurable via `FRONTEND_PORT`/`FRONTEND_DEV_PORT`/`FRONTEND_BIND` in
+   `.env` (defaults: `4200`, `4200` and `127.0.0.1`) — see [Frontend
+   stack](#frontend-stack) for the difference between the two port variables. There's no
+   separate enable/disable switch here (unlike `BACKEND_VNC_PASSWORD`): a dev server isn't
+   authenticated by itself either way, so there's no unauthenticated-by-default risk this port
+   mapping newly introduces.
 2. `python setup.py --start` (or restart just `frontend` after editing `.env`).
 3. Open `http://127.0.0.1:${FRONTEND_PORT:-4200}` in a browser. The port is only published
    on the host's loopback interface by default (`FRONTEND_BIND`) — if `docker compose` runs
@@ -350,7 +393,9 @@ setup above:
 interface, not into its loopback namespace, so a server bound only to `127.0.0.1` *inside*
 the container is unreachable from outside it no matter how the port is published on the
 host. For Angular's CLI this means starting it with `ng serve --host 0.0.0.0` (the default,
-`ng serve` alone, binds to `localhost` only and won't work here).
+`ng serve` alone, binds to `localhost` only and won't work here); `next dev` already binds
+`0.0.0.0` by default, so with the `nextjs` variant there's nothing to add. Each variant's
+`AGENTS.md` tells its own agent this, so it should already be handled.
 
 **Running Docker inside WSL2**: same fix and same reasoning as the backend VNC section above
 — set `FRONTEND_BIND=0.0.0.0` in `.env` and restart `frontend` if `http://localhost:4200`
@@ -423,12 +468,8 @@ docker exec pi-<role> tmux capture-pane -t pi -p        # pi-link's on-screen st
 
 ## TODO
 
-- **Frontend tech stack** (Angular, ...) — once decided, `Dockerfile.pi` will be split for it
-  too, adding its matching toolchain (flagged with `TODO` in the file itself; backend and
-  devops already have their own images, and backend one per stack variant). If more than one
-  frontend stack ever makes sense, it follows the same `BACKEND_STACK` pattern.
-- **More backend stacks** — `go` and others, following [the two-file
-  recipe](#adding-a-new-backend-stack) below.
+- **More stacks** — `go` for the backend, another framework for the frontend, following [the
+  two-file recipe](#adding-a-new-backend-stack) below.
 - **Headless Eclipse pi extension** for Java code management, pending integration once the
   backend stack is confirmed.
 - **`cypress/included` version** — `Dockerfile.cypress` uses `latest` as a placeholder; pin

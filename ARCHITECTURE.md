@@ -60,12 +60,13 @@ working or not, and reacts with its own reconnection logic (2-5s randomized back
 hub container dies, the rest reconnect on their own, following pi-link's own procedure,
 without any external script ever telling the `pi` process anything directly.
 
-## Backend stack variants
+## Stack variants
 
-`backend`'s **role** in the team is fixed; the **language** it works in isn't. A stack variant
-is selected with `BACKEND_STACK` in `.env` (`java` by default, plus `kotlin` and `python`
-today), and it resolves entirely through Compose's own variable interpolation — no override
-files, no profiles, no second service definition:
+A role's **place in the team** is fixed; the **technology it works in** isn't. `backend` and
+`frontend` each carry a variant selector — `BACKEND_STACK` (`java` by default, plus `kotlin`
+and `python`) and `FRONTEND_STACK` (`angular` by default, plus `nextjs`) — and both resolve
+entirely through Compose's own variable interpolation: no override files, no profiles, no
+second service definition.
 
 ```yaml
 build:
@@ -76,24 +77,42 @@ volumes:
 ```
 
 So a variant is exactly **two files** — the image that builds its toolchain
-(`docker/Dockerfile.backend.<stack>`) and the team context its agent boots with
-(`agents/backend/AGENTS.<stack>.md`) — and nothing else in the service changes: same
+(`docker/Dockerfile.<role>.<stack>`) and the team context its agent boots with
+(`agents/<role>/AGENTS.<stack>.md`) — and nothing else in the service changes: same
 container name, same network, same volumes, same pi-link wiring, same Azure DevOps
 credentials. That's the point: the stack decides what's *inside* the container, never the
-role's place in the team, so `manager`, `frontend` and `cypress` don't need to know or care
-which one is running.
+role's place in the team, so the other four agents don't need to know or care which one is
+running.
 
-Two consequences worth stating explicitly:
+Three consequences worth stating explicitly:
 
-- **The `:-java` defaults are load-bearing.** An existing `.env` written before this
-  mechanism existed has no `BACKEND_STACK` at all and keeps building the Java image exactly as
-  before — the variable is optional, not required.
-- **A variant is only offered once both files exist.** `setup.py --init` doesn't carry a
-  hardcoded list of languages: it globs `docker/Dockerfile.backend.*` and keeps the stacks
-  that also have a matching `agents/backend/AGENTS.<stack>.md`, then asks as a numbered menu
-  and validates the answer. `python` was added exactly that way — two files, nothing else — and
-  `go` or any other would be the same: `setup.py`, `docker-compose.yml` and `.env.example`
-  don't need to be touched, and a half-added variant never gets offered.
+- **The `:-java`/`:-angular` defaults are load-bearing.** An existing `.env` written before
+  this mechanism existed has neither variable and keeps building the same images as before —
+  they're optional, not required.
+- **A variant is only offered once both files exist.** `setup.py --init` carries no hardcoded
+  list: `discover_stacks(role)` globs `docker/Dockerfile.<role>.*` and keeps the stacks that
+  also have a matching `agents/<role>/AGENTS.<stack>.md`, then asks as a numbered menu and
+  validates the answer. `python` was added exactly that way — two files, nothing else.
+- **Extending the mechanism to a second role cost one line.** `ENV_CHOICES` maps a variable
+  name to a function returning its options, so `frontend` joined by adding
+  `"FRONTEND_STACK": lambda: discover_stacks("frontend")`. A third role would be the same.
+
+The two roles lean on the mechanism to very different degrees, and it's worth being honest
+about that. The backend variants diverge by entire toolchains — different compilers, build
+tools and language servers, gigabytes apart. The frontend ones are both Node and both test on
+jsdom, so their images differ by little more than which CLI is installed globally; the
+substantial divergence there is each variant's `AGENTS.md` — how to start the dev server and on
+which port, and, for Next, that server-side and browser-side code don't reach the API by the
+same hostname. They're still kept as two images rather than one parameterized image: it keeps a
+single mechanism across both roles, avoids leaving one framework's CLI inside the other's
+container, and lets either diverge further later without a redesign.
+
+One assumption worth not inheriting: a browser is **not** part of the `angular` image. `ng test`
+on Angular 20+ goes through the `@angular/build:unit-test` builder (vitest on jsdom) and needs
+none — verified by scaffolding with `ng new` and running `ng test` with no Chromium present.
+Only an older, Karma-based Angular would need one, and `docker/Dockerfile.frontend.angular`
+carries the exact two lines to add it, commented out, rather than shipping ~790 MB of browser
+against a maybe. Real browser testing belongs to `cypress`, which has its own image.
 
 What the variants don't share is the GUI machinery. The `java` image carries a full headless
 Eclipse (next section) and therefore Xvfb, x11vnc and noVNC; `kotlin` and `python` carry none
@@ -109,8 +128,8 @@ price than splitting the service definition in two.
 
 ## Java code intelligence in `backend`: jdtbridge + headless Eclipse
 
-Everything in this section applies to the **`java` variant only** (`BACKEND_STACK=java`, the
-default) — see the previous section. The `java` backend's toolchain (see
+Everything in this section applies to the **`java` backend variant only**
+(`BACKEND_STACK=java`, the default) — see the previous section. The `java` backend's toolchain (see
 `docker/Dockerfile.backend.java` and
 [`agents/backend/AGENTS.java.md`](agents/backend/AGENTS.java.md)) includes two independent
 layers of Java tooling:

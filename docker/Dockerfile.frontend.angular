@@ -1,0 +1,69 @@
+# Dockerfile de la variante **angular** del rol frontend (ver agents/frontend/AGENTS.angular.md).
+# Se elige con FRONTEND_STACK=angular en .env (`python setup.py --init` lo pregunta); es la
+# variante por defecto. Ver README ("Frontend stack") y ARCHITECTURE.md ("Stack variants").
+#
+# Frente a la variante nextjs la diferencia real es pequeña —ambas son Node y ambas testean
+# sobre jsdom— y se concentra en qué CLI queda global y, sobre todo, en el AGENTS.md de cada
+# una. Se mantienen como dos imágenes por coherencia con el mecanismo de variantes y para no
+# dejar la CLI de un framework dentro del contenedor del otro, que solo confundiría al agente.
+#
+# Sin navegador, deliberadamente: `ng test` en Angular 20+ usa el builder @angular/build:unit-test
+# (vitest sobre jsdom) y no necesita ninguno — verificado con `ng new` + `ng test` sin chromium
+# en la imagen. Si el proyecto real resulta ser un Angular anterior, con Karma + ChromeHeadless,
+# o activa el modo navegador de vitest, hace falta añadirlo aquí:
+#     RUN apt-get update && apt-get install -y --no-install-recommends chromium \
+#       && rm -rf /var/lib/apt/lists/*
+#     ENV CHROME_BIN=/usr/bin/chromium
+# (~790 MB, medidos). No se incluye de serie porque el andamiaje actual no lo usa.
+FROM node:24-bookworm-slim
+
+# Sin esto, los bytes multibyte UTF-8 (tildes, ¡¿, ñ) llegan mal a tmux/pi porque la imagen
+# slim viene en locale C/POSIX por defecto. C.UTF-8 ya viene con glibc, no requiere generar
+# locales.
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep curl wget openssh-client tmux socat util-linux ncurses-term gnupg \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY docker/generate-tmux-conf.sh /usr/local/bin/generate-tmux-conf.sh
+RUN chmod +x /usr/local/bin/generate-tmux-conf.sh && /usr/local/bin/generate-tmux-conf.sh
+
+# GitHub CLI (gh)
+RUN mkdir -p -m 755 /usr/share/keyrings \
+  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends gh \
+  && rm -rf /var/lib/apt/lists/*
+
+# Azure CLI + extensión azure-devops
+RUN mkdir -p /etc/apt/keyrings \
+  && curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg \
+  && chmod go+r /etc/apt/keyrings/microsoft.gpg \
+  && . /etc/os-release \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/azure-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends azure-cli \
+  && az extension add --name azure-devops \
+  && rm -rf /var/lib/apt/lists/*
+
+# Angular CLI global: es la herramienta con la que se crea el proyecto (`ng new`) y se arranca
+# el servidor de desarrollo (`ng serve`), antes de que exista ningún package.json en /workspace.
+# Una vez el proyecto existe, su propia versión de @angular/cli (la de sus node_modules) es la
+# que manda; esta queda solo como punto de entrada.
+ARG ANGULAR_CLI_VERSION=22.1.7
+RUN npm install -g "@angular/cli@${ANGULAR_CLI_VERSION}"
+
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+WORKDIR /workspace
+
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY docker/pi-link-broker.sh /usr/local/bin/pi-link-broker.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/pi-link-broker.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["--link"]
