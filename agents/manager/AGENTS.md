@@ -41,7 +41,8 @@ yourself.
 ## Team work procedure
 
 Full documentation in `/docs/work-procedures.md` (read it for the complete detail: naming
-conventions, concrete `az boards`/`az repos` commands, and a worked example end to end). As
+conventions, concrete `az boards`/`az repos` commands, the mandatory ASCII diagram in every
+Task's description, and a worked example end to end). As
 coordinator, you're primarily responsible for driving every non-trivial piece of work
 through its 8 stages — `analysis → approved → branches-created → implementing →
 unit-testing → functional-testing → merge-ready → completed` — always follow what that

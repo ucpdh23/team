@@ -128,22 +128,81 @@ inside what looks like a work item.
 2. `manager` creates the Azure DevOps Task breakdown: one or more Tasks per affected role,
    each titled with the role's prefix (see naming conventions below). Since there's no
    separate shared document to point to, **each Task's description must stand on its own**:
-   summary of the change, affected modules/files, and acceptance criteria — written as
-   settled decisions, not open questions.
+   summary of the change, affected modules/files, acceptance criteria, and at least one
+   **ASCII diagram** — written as settled decisions, not open questions (see "Diagrams in
+   Tasks" below).
 3. Each Task is linked as a **child** of the parent User Story/Bug.
 4. If a User Story/Bug exists, `manager` moves it to **Active**.
+
+#### Diagrams in Tasks
+
+Every Task's description must include **at least one ASCII diagram**, inside a fenced code
+block so it renders monospaced and stays aligned in the Azure DevOps description field. Pick
+whichever kind actually clarifies the change — don't force all four:
+
+- **Flow diagram** — the execution flow of the feature/change (most common default when
+  nothing more specific applies).
+- **Class diagram** — when the change introduces inheritance, new classes, or restructures
+  existing ones.
+- **Sequence diagram** — when the change involves interaction between multiple
+  components/services (e.g. `backend` calling an external system, or a multi-step
+  request/response between `frontend` and `backend`).
+- **Data diagram** — when the change alters the data model (new tables, relationships,
+  indexes).
+
+The point isn't decoration: a diagram forces the role writing the Task to actually work out
+the shape of the change before implementation starts, and gives the other role (and the
+human reviewer) something concrete to check the implementation against later. A Task
+description with acceptance criteria but no diagram is treated as incomplete — send it back
+for another pass rather than linking it as ready.
+
+Example (flow diagram, plain text, no external tooling required):
+
+```
+User submits discount code
+        |
+        v
+[frontend] POST /api/checkout { code }
+        |
+        v
+[backend] CheckoutService.applyDiscount(code)
+        |
+        +-- invalid/expired --> 422 { error }
+        |
+        +-- valid --> recompute total --> 200 { total, discount }
+```
 
 **Azure DevOps changes:** N Tasks created (one set per affected role), each self-contained
 and `parent`-linked to the User Story; the User Story itself moves to **Active**.
 
 ```bash
-# Create a Task for a given role (repeat once per role/subtask)
+# Write the full description locally first (summary + affected modules + acceptance
+# criteria + diagram) so the ASCII diagram's alignment survives intact, then pass its
+# content as --description. Fighting a diagram's indentation through inline shell
+# escaping is not worth it — always go through a file for anything with a diagram.
+cat > /tmp/task-backend-discount.txt <<'EOF'
+Add server-side validation for discount codes at checkout. Codes do not stack. Affects
+CheckoutService and the /api/checkout endpoint. Acceptance: invalid/expired codes return a
+422 with a clear error; valid codes reduce the order total correctly.
+
+Flow:
+User submits discount code
+        |
+        v
+[frontend] POST /api/checkout { code }
+        |
+        v
+[backend] CheckoutService.applyDiscount(code)
+        |
+        +-- invalid/expired --> 422 { error }
+        |
+        +-- valid --> recompute total --> 200 { total, discount }
+EOF
+
 az boards work-item create \
   --type Task \
   --title "[backend] Add discount-code validation to checkout" \
-  --description "Add server-side validation for discount codes at checkout. Codes do not \
-stack. Affects CheckoutService and the /api/checkout endpoint. Acceptance: invalid/expired \
-codes return a 422 with a clear error; valid codes reduce the order total correctly." \
+  --description "$(cat /tmp/task-backend-discount.txt)" \
   --output json   # capture the returned id
 
 # Link it as a child of the parent User Story
@@ -152,6 +211,11 @@ az boards work-item relation add \
   --relation-type parent \
   --target-id <USER_STORY_ID>
 ```
+
+Azure DevOps' description field renders plain text as HTML, so it won't preserve monospaced
+alignment on its own — wrapping the diagram between a line like `Flow:` and blank lines
+above/below is enough for it to stay readable; if your organization's process template
+supports Markdown/HTML in that field, prefer a real code block instead.
 
 **Exit criteria:** all Tasks exist in Azure DevOps, linked to the parent ticket, and every
 affected role agrees its Task's acceptance criteria are clear enough to start branching.
@@ -338,8 +402,8 @@ discount code at checkout."
    there, confirms both questions are resolved.
 3. **Approved** — `manager` creates two self-contained Tasks — `[backend] Add discount-code
    validation to checkout` and `[frontend] Add discount code field to checkout form`, each
-   with the settled decisions written into its description — both linked to the parent User
-   Story, which moves to Active.
+   with the settled decisions and an ASCII flow diagram written into its description — both
+   linked to the parent User Story, which moves to Active.
 4. **Branches created** — `backend` and `frontend` each create
    `feature/<task-id>-checkout-discount-codes`.
 5. **Implementing** — `backend` builds the validation endpoint; `frontend` builds the field
