@@ -21,6 +21,9 @@ ENV_BACKUP = ROOT / ".env.bak"
 TRUTHY_ANSWERS = {"s", "si", "sí", "y", "yes"}
 ROLES = ("manager", "backend", "frontend", "devops", "cypress")
 
+CONSOLE_DEFAULT_PORT = 4080
+COST_TRACKING_DIR = ROOT / "cost-tracking"
+
 DOCKER_DIR = ROOT / "docker"
 AGENTS_DIR = ROOT / "agents"
 
@@ -324,6 +327,25 @@ def cmd_git_clone(args) -> int:
     return exit_code
 
 
+def cmd_console(args) -> int:
+    """Levanta el dashboard web de consumo (paquete console/, solo librería estándar).
+
+    Import diferido: solo se carga console.server cuando de verdad se pide --console, para no
+    penalizar el resto de comandos ni exigir la carpeta console/ para usarlos.
+    """
+    if args.cost_dir:
+        cost_dir = Path(args.cost_dir).expanduser().resolve()
+    else:
+        cost_dir = COST_TRACKING_DIR
+
+    try:
+        from console.server import serve
+    except ImportError as exc:
+        print(f"No se pudo cargar el paquete 'console': {exc}", file=sys.stderr)
+        return 1
+    return serve(port=args.console, cost_dir=cost_dir)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="setup.py",
@@ -379,6 +401,22 @@ def build_parser() -> argparse.ArgumentParser:
         "dentro de /workspace en su contenedor (requiere que esté arrancado). Si /workspace "
         "ya tiene contenido para ese rol, lo omite en vez de fallar.",
     )
+    parser.add_argument(
+        "--console",
+        nargs="?",
+        const=CONSOLE_DEFAULT_PORT,
+        type=int,
+        metavar="PUERTO",
+        help="Levanta un dashboard web (solo librería estándar) para visualizar el consumo de "
+        f"los agentes desde cost-tracking/ — total y por agente, con evolución del último día o "
+        f"la última semana. Puerto opcional (por defecto {CONSOLE_DEFAULT_PORT}).",
+    )
+    parser.add_argument(
+        "--cost-dir",
+        metavar="DIR",
+        help="Carpeta de datos de coste a visualizar con --console (por defecto ./cost-tracking). "
+        "Útil para inspeccionar un export de otra ejecución.",
+    )
     return parser
 
 
@@ -400,6 +438,8 @@ def main(argv=None) -> int:
         return cmd_bash(args)
     if args.git_clone:
         return cmd_git_clone(args)
+    if args.console is not None:
+        return cmd_console(args)
 
     parser.print_help()
     return 0
