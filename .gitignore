@@ -13,3 +13,7 @@
 # cada ejecución, no son código.
 cost-tracking/*/*
 !cost-tracking/*/.gitkeep
+
+# Cachés de Python
+__pycache__/
+*.pyc
