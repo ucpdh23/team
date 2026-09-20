@@ -20,6 +20,7 @@ from .config import Config
 from .db import Database
 from .docker_api import DockerAPI
 from .events import MAX_EVENTS_PER_REQUEST, EventStore
+from .system import SystemInfo
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -36,10 +37,13 @@ _CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".json": "application/json; charset=utf-8",
     ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".map": "application/json; charset=utf-8",
 }
 
 
-def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore):
+def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
+                  system: SystemInfo):
     class Handler(BaseHTTPRequestHandler):
         # Silencia el log por defecto (una línea por request) para no ensuciar la salida del
         # contenedor, que es donde se ven los avisos que sí importan.
@@ -131,6 +135,18 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore):
 
             if parsed.path == "/api/health":
                 self._json_or_error(lambda: self._health(), extra_headers)
+                return
+
+            if parsed.path == "/api/system":
+                self._json_or_error(lambda: system.snapshot(), extra_headers)
+                return
+
+            if parsed.path == "/api/system/stats":
+                self._json_or_error(lambda: {"stats": system.stats()}, extra_headers)
+                return
+
+            if parsed.path == "/api/system/disk":
+                self._json_or_error(lambda: system.disk(), extra_headers)
                 return
 
             if parsed.path == "/api/events":
@@ -272,8 +288,9 @@ def serve(config: Config) -> int:
     db = Database(config.data_dir / "console.db")
     events = EventStore(db, retention_days=config.event_retention_days)
     _start_retention(events)
+    system = SystemInfo(docker, config.container_prefix)
 
-    handler = _make_handler(config, docker, events)
+    handler = _make_handler(config, docker, events, system)
     try:
         httpd = ThreadingHTTPServer(("0.0.0.0", config.port), handler)
     except OSError as exc:
