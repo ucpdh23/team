@@ -281,6 +281,9 @@ services:
       # El contenedor solo ve su 0.0.0.0 interno: recibe CONSOLE_BIND para poder avisar de que
       # queda accesible sin autenticación desde fuera de esta máquina.
       - CONSOLE_BIND=${CONSOLE_BIND:-127.0.0.1}
+      # Días que se conserva el metadato de los mensajes entre agentes (~80 bytes cada uno,
+      # así que subirlo no es caro).
+      - CONSOLE_EVENT_RETENTION_DAYS=${CONSOLE_EVENT_RETENTION_DAYS:-30}
       # Horas que un aviso programado espera a su agente antes de caducar (ver console/inbox.py):
       # entregar "revisa los tickets de hoy" tres días tarde es ruido, no información.
       - CONSOLE_INBOX_TTL_HOURS=${CONSOLE_INBOX_TTL_HOURS:-24}

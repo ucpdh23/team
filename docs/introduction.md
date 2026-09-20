@@ -50,6 +50,32 @@ You, as a human, don't need to relay messages between agents yourself — that's
 point. You give `manager` a goal, and the team figures out internally who needs to talk to
 whom.
 
+## Watching the team work
+
+Five agents talking to each other produce more going on than one terminal can show, so the
+team also runs a **console**: a web page at `http://localhost:4070`, brought up with
+everything else, whose whole job is to make the team legible from the outside.
+
+- **What's running**, including the agent that has been stopped since yesterday, which is the
+  one worth noticing; and what each of the others is doing right now — idle, thinking,
+  running a tool — and how much of its context it has used.
+- **Who is talking to whom.** Every message between agents lights the line between them and
+  fades over a few seconds, so a glance tells you whether the team is collaborating or each
+  one is off on their own. The *content* of those messages is deliberately not stored: only
+  who, to whom, when and how long it was.
+- **What it's costing**, per agent and over time.
+- **The five sessions side by side**, read-only, refreshed every few seconds — the mosaic
+  version of attaching to one agent's terminal.
+- **Scheduled jobs.** Scripts your team writes (they are not part of this project) can run on
+  a schedule inside the console and *talk to the agents*: the case it was built for is
+  querying Azure DevOps at eight in the evening and telling `manager` which tickets are still
+  open. The agent receives it as a message and starts working on it even if nobody is
+  watching.
+
+The console is an observer, not a sixth teammate: it does not appear in `link_list`, it is
+never assigned work, and if you stop it the five agents carry on exactly as before. See
+[The console](../README.md#the-console) in the README for how to open it and configure it.
+
 ## How to think about working with this team
 
 - **Talk to `manager` first**, the same way you'd talk to a tech lead rather than picking a
@@ -69,7 +95,8 @@ whom.
 - **You can drop into any agent's session at any time** (`docker exec -it pi-<role> tmux
   attach -t pi`) to see exactly what it's doing, ask it something directly, or redirect it —
   the team structure doesn't require you to go through `manager` for everything, it's just
-  the recommended default for new work.
+  the recommended default for new work. The console's **Tmux** tab shows all five of those
+  sessions at once when you only want to look.
 
 ## Where to go next
 
