@@ -253,3 +253,34 @@ ul.events .mono { min-width: 70px; }
 /* En la lista de mensajes la etiqueta lleva un tiempo ("✓ 900 ms"), no una palabra clave:
    en versales quedaría gritando. */
 ul.events li .tag { margin-left: auto; text-transform: none; }
+
+/* ─── Cron ─────────────────────────────────────────────────────────────────── */
+
+.ghost.small { padding: 2px 8px; font-size: 12px; }
+
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-items: end; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.form input, .form select {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.form #f-error { grid-column: 1 / -1; color: #ff7a90; }
+
+/* La salida de una ejecución se enseña tal cual la escribió el script: sin reformatear, con
+   sus saltos de línea y con scroll propio. */
+.run-output {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  background: #0b0d13;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  max-height: 260px;
+  overflow: auto;
+}

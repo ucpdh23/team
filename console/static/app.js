@@ -9,6 +9,7 @@ const VIEWS = {
   sistema: () => import("/views/sistema.js"),
   actividad: () => import("/views/actividad.js"),
   costes: () => import("/views/costes.js"),
+  cron: () => import("/views/cron.js"),
 };
 const DEFAULT_VIEW = "sistema";
 

@@ -20,6 +20,7 @@ from .config import Config
 from .db import Database
 from .docker_api import DockerAPI
 from .events import MAX_EVENTS_PER_REQUEST, EventStore
+from .cron import CronManager
 from .inbox import Inbox
 from .system import SystemInfo
 
@@ -43,8 +44,19 @@ _CONTENT_TYPES = {
 }
 
 
+def _path_parts(path: str, prefix: str) -> list[str]:
+    """Trozos de una ruta bajo `prefix`, o [] si no cuelga de ahí.
+
+    Con la cantidad de rutas que tiene ya la API, comparar cadenas enteras a mano deja de
+    leerse; esto permite `/api/cron/jobs/<id>/run` sin montar un enrutador entero.
+    """
+    if not path.startswith(prefix):
+        return []
+    return [part for part in path[len(prefix):].split("/") if part]
+
+
 def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
-                  system: SystemInfo, inbox: Inbox):
+                  system: SystemInfo, inbox: Inbox, cron: CronManager):
     class Handler(BaseHTTPRequestHandler):
         # Silencia el log por defecto (una línea por request) para no ensuciar la salida del
         # contenedor, que es donde se ven los avisos que sí importan.
@@ -182,6 +194,38 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 }, extra_headers)
                 return
 
+            if parsed.path == "/api/cron/scripts":
+                self._json_or_error(lambda: {"scripts": cron.scripts(),
+                                             "dir": str(config.scripts_dir)}, extra_headers)
+                return
+
+            if parsed.path == "/api/cron/jobs":
+                self._json_or_error(lambda: {"jobs": cron.jobs(), "stats": cron.stats()},
+                                    extra_headers)
+                return
+
+            cron_job = _path_parts(parsed.path, "/api/cron/jobs/")
+            if len(cron_job) == 2 and cron_job[1] == "runs":
+                self._json_or_error(lambda: {"runs": cron.runs(cron_job[0])}, extra_headers)
+                return
+
+            if parsed.path == "/api/cron/runs":
+                self._json_or_error(
+                    lambda: {"runs": cron.runs(limit=_int_param(query, "limit") or 50)},
+                    extra_headers,
+                )
+                return
+
+            cron_run = _path_parts(parsed.path, "/api/cron/runs/")
+            if len(cron_run) == 1:
+                self._json_or_key_error(lambda: cron.run_detail(cron_run[0]), extra_headers)
+                return
+
+            if parsed.path == "/api/cron/state":
+                job = (query.get("job") or [""])[0]
+                self._json_or_error(lambda: cron.state(job), extra_headers)
+                return
+
             if parsed.path == "/api/events/stats":
                 self._json_or_error(lambda: events.stats(), extra_headers)
                 return
@@ -205,7 +249,15 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                                 extra_headers=extra_headers)
                 return
 
-            if parsed.path not in ("/api/events", "/api/link/send", "/api/inbox/take"):
+            # POST /api/cron/jobs/<id>/run tampoco lleva cuerpo.
+            cron_run_now = _path_parts(parsed.path, "/api/cron/jobs/")
+            if len(cron_run_now) == 2 and cron_run_now[1] == "run":
+                self._json_or_key_error(lambda: cron.run_now(cron_run_now[0]), extra_headers)
+                return
+
+            if parsed.path not in ("/api/events", "/api/link/send", "/api/inbox/take",
+                                   "/api/cron/jobs", "/api/cron/state") \
+                    and not (len(cron_run_now) == 1 and parsed.path.startswith("/api/cron/jobs/")):
                 self.send_error(404, "Not found")
                 return
 
@@ -241,6 +293,24 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 self._json_or_error(lambda: {"notes": inbox.take(agent)}, extra_headers)
                 return
 
+            if parsed.path == "/api/cron/jobs":
+                self._json_or_value_error(lambda: cron.create_job(payload or {}),
+                                          extra_headers, status=201)
+                return
+
+            if len(cron_run_now) == 1 and parsed.path.startswith("/api/cron/jobs/"):
+                self._json_or_value_error(
+                    lambda: cron.update_job(cron_run_now[0], payload or {}), extra_headers
+                )
+                return
+
+            if parsed.path == "/api/cron/state":
+                self._json_or_value_error(lambda: (
+                    cron.set_state(payload["job"], payload["key"], payload.get("value")),
+                    {"ok": True},
+                )[1], extra_headers)
+                return
+
             batch = payload if isinstance(payload, list) else [payload]
             if len(batch) > MAX_EVENTS_PER_REQUEST:
                 self._send_json(
@@ -265,6 +335,12 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
             authorized, extra_headers = self._authorize(query)
             if not authorized:
                 self._send_json({"error": "unauthorized"}, status=401)
+                return
+
+            cron_job = _path_parts(parsed.path, "/api/cron/jobs/")
+            if len(cron_job) == 1:
+                self._json_or_key_error(lambda: {"deleted": cron.delete_job(cron_job[0])},
+                                        extra_headers)
                 return
 
             if parsed.path != "/api/events":
@@ -294,6 +370,26 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 return None
             return self.rfile.read(length)
 
+        def _json_or_key_error(self, build, extra_headers=()):
+            """404 cuando lo pedido no existe; el resto, como siempre."""
+            try:
+                self._send_json(build(), extra_headers=extra_headers)
+            except KeyError as exc:
+                self._send_json({"error": str(exc)}, status=404)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+
+        def _json_or_value_error(self, build, extra_headers=(), status=200):
+            """400 cuando lo que manda el cliente no es válido: es culpa suya, no del servidor."""
+            try:
+                self._send_json(build(), status=status, extra_headers=extra_headers)
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=400)
+            except KeyError as exc:
+                self._send_json({"error": str(exc)}, status=404)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+
         def _json_or_error(self, build, extra_headers=()):
             try:
                 self._send_json(build(), extra_headers=extra_headers)
@@ -318,6 +414,7 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 "auth": bool(config.token),
                 "events": events.stats(),
                 "inbox": inbox.stats(),
+                "cron": cron.stats(),
             }
 
     return Handler
@@ -368,8 +465,10 @@ def serve(config: Config) -> int:
     inbox = Inbox(db, events, ttl_hours=config.inbox_ttl_hours)
     _start_retention(events, inbox)
     system = SystemInfo(docker, config.container_prefix)
+    cron = CronManager(db, events, inbox, config)
+    cron.start()
 
-    handler = _make_handler(config, docker, events, system, inbox)
+    handler = _make_handler(config, docker, events, system, inbox, cron)
     try:
         httpd = ThreadingHTTPServer(("0.0.0.0", config.port), handler)
     except OSError as exc:
@@ -382,6 +481,10 @@ def serve(config: Config) -> int:
     pending = inbox.stats()["pending"]
     if pending:
         print(f"[console] avisos pendientes de entregar: {pending}")
+    cron_stats = cron.stats()
+    print(f"[console] cron:            {cron_stats['scripts']} script(s) en "
+          f"{config.scripts_dir}, {cron_stats['enabled']}/{cron_stats['jobs']} "
+          "programaciones activas")
     if not config.cost_dir.is_dir():
         print(f"[console] aviso: {config.cost_dir} no existe todavía (dashboard vacío).")
     if config.docker_socket:
@@ -410,6 +513,7 @@ def serve(config: Config) -> int:
     except KeyboardInterrupt:
         print("\n[console] parado.")
     finally:
+        cron.stop()
         httpd.server_close()
         db.close()
     return 0

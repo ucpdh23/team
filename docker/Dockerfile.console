@@ -41,6 +41,11 @@ RUN if [ "$CONSOLE_AZ_CLI" = "true" ]; then \
     fi
 
 COPY console/ /app/console/
+# El SDK que consumen los scripts del cron va aparte y en PYTHONPATH: los scripts son del
+# equipo de desarrollo y viven fuera de este repositorio, pero la API con la que hablan con la
+# consola la versiona team (ver console/sdk/console_sdk.py).
+COPY console/sdk/ /opt/console-sdk/
+ENV PYTHONPATH=/opt/console-sdk
 
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1

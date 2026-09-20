@@ -26,7 +26,7 @@ describe("consola team-pi", () => {
 
   it("Sistema: pinta los contenedores y el estado de la malla", () => {
     cy.visit("/");
-    cy.get("nav#tabs a").should("have.length", 3);
+    cy.get("nav#tabs a").should("have.length", 4);
     cy.get("nav#tabs a.active").should("contain", "Sistema");
     cy.get("#containers table tbody tr").should("have.length.greaterThan", 0);
     cy.contains("#sys-meta", "contenedores en marcha");
@@ -69,6 +69,39 @@ describe("consola team-pi", () => {
         cy.request("POST", `/api/inbox/${res.body.id}/ack`);
         cy.request("DELETE", "/api/events?agent=console");
       });
+  });
+
+  it("Cron: programa un script del catálogo desde la web", () => {
+    const nombre = "prueba-ui";
+    cy.visit("/#/cron");
+    cy.get("#cron-jobs", { timeout: 10000 }).should("exist");
+    cy.get("#cron-new").click();
+    cy.get("#f-name").type(nombre);
+    cy.get("#f-schedule").clear().type("30 7 * * 1");
+    // Se elige un script que termine rápido: el catálogo es del equipo y puede tener
+    // cualquier cosa, incluido algo que tarde minutos.
+    cy.get("#f-script option").should("have.length.greaterThan", 0);
+    cy.get("#f-script").then(($select) => {
+      const rapido = [...$select[0].options].find((o) => /saluda|hola|demo/.test(o.value));
+      if (rapido) cy.get("#f-script").select(rapido.value);
+    });
+    cy.get("#f-save").click();
+    cy.contains("#cron-jobs td", nombre).should("exist");
+    cy.contains("#cron-jobs tr", nombre).find("[data-action='run']").click();
+    cy.contains("#cron-runs li", nombre, { timeout: 10000 }).should("exist");
+    cy.screenshot("4-cron", { capture: "viewport" });
+
+    // Una expresión inválida tiene que explicarse, no fallar en silencio.
+    cy.get("#cron-new").click();
+    cy.get("#f-name").type("no-valida");
+    cy.get("#f-schedule").clear().type("esto no es cron");
+    cy.get("#f-save").click();
+    cy.contains("#f-error", "5 campos");
+
+    cy.request("/api/cron/jobs").then((res) => {
+      const job = res.body.jobs.find((j) => j.name === nombre);
+      if (job) cy.request("DELETE", `/api/cron/jobs/${job.id}`);
+    });
   });
 
   it("navega entre pestañas sin recargar ni dejar restos", () => {

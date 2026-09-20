@@ -21,7 +21,7 @@ from pathlib import Path
 
 # Se sube cuando cambia el esquema; `migrate()` aplica lo que falte. PRAGMA user_version viene
 # en el propio fichero, así que no hace falta una tabla de versiones.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -53,6 +53,45 @@ CREATE TABLE IF NOT EXISTS inbox (
   attempts   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS inbox_agent ON inbox(agent, created_ts);
+
+-- Programaciones del cron. El "qué se ejecuta" no se guarda aquí como comando libre: `script`
+-- es un nombre dentro del catálogo montado (ver console/cron.py), y se valida contra él en
+-- cada ejecución, no solo al crear el job.
+CREATE TABLE IF NOT EXISTS cron_jobs (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  schedule    TEXT NOT NULL,      -- cron de 5 campos: m h dom mes dow
+  script      TEXT NOT NULL,
+  args        TEXT NOT NULL DEFAULT '[]',
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  timeout_s   INTEGER NOT NULL DEFAULT 300,
+  created_ts  INTEGER NOT NULL,
+  last_run_ts INTEGER,
+  next_run_ts INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS cron_runs (
+  id          TEXT PRIMARY KEY,
+  job_id      TEXT NOT NULL,
+  job_name    TEXT NOT NULL,      -- copiado: una ejecución sigue contándose aunque borres el job
+  started_ts  INTEGER NOT NULL,
+  finished_ts INTEGER,
+  exit_code   INTEGER,
+  status      TEXT NOT NULL,      -- running | ok | error | timeout | skipped
+  output      TEXT                -- recortado; la salida completa va a un fichero
+);
+CREATE INDEX IF NOT EXISTS cron_runs_job ON cron_runs(job_id, started_ts DESC);
+CREATE INDEX IF NOT EXISTS cron_runs_ts  ON cron_runs(started_ts DESC);
+
+-- Estado persistente por job, para los scripts (console_sdk.state). Lo escribe el servidor a
+-- través de la API y no el script directamente: así sigue habiendo un único proceso tocando
+-- la base de datos.
+CREATE TABLE IF NOT EXISTS cron_state (
+  job   TEXT NOT NULL,
+  key   TEXT NOT NULL,
+  value TEXT NOT NULL,
+  PRIMARY KEY (job, key)
+);
 """
 
 
