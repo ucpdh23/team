@@ -61,6 +61,23 @@ class _Cached:
         return value
 
 
+def _created_by_compose(container: dict) -> bool:
+    """¿Lo creó Compose, o solo comparte imagen con el equipo?
+
+    Compose estampa `project` y `service` también en las IMÁGENES que construye, y un
+    contenedor hereda las etiquetas de su imagen — así que un `docker run team-pi-manager`
+    suelto aparece como parte del proyecto aunque no lo sea. `container-number`, en cambio,
+    solo lo pone Compose al crear el contenedor, nunca la imagen: es el marcador que distingue
+    "es del equipo" de "salió de una imagen del equipo".
+
+    Los contenedores de `docker compose run` (oneoff) sí llevan la marca, pero son de usar y
+    tirar y tampoco forman parte del equipo.
+    """
+    labels = container.get("Labels") or {}
+    return ("com.docker.compose.container-number" in labels
+            and labels.get("com.docker.compose.oneoff") != "True")
+
+
 def _age(iso: str | None) -> int | None:
     """Segundos desde una marca de tiempo de Docker (RFC3339 con nanosegundos)."""
     if not iso or iso.startswith("0001-01-01"):
@@ -96,19 +113,23 @@ class SystemInfo:
     # ------------------------------------------------------------- contenedores
 
     def project(self) -> str | None:
-        """Proyecto de Compose al que pertenece esta consola, según su propia etiqueta.
+        """Proyecto de Compose al que pertenece esta consola, según su propia etiqueta."""
+        return (self.identity() or {}).get("project")
 
-        Compose etiqueta cada contenedor que crea con `com.docker.compose.project`, y la
-        consola se inspecciona a sí misma (su hostname es su id) para leerla.
-        """
-        return self._project.get(self._build_project)
+    def identity(self) -> dict:
+        """Quién es esta consola para Compose: proyecto y fichero del que salió."""
+        return self._project.get(self._build_identity)
 
-    def _build_project(self) -> str | None:
+    def _build_identity(self) -> dict:
         if not self.docker:
-            return None
+            return {}
         detail = self.docker.get(f"/containers/{socket.gethostname()}/json")
         labels = ((detail or {}).get("Config") or {}).get("Labels") or {}
-        return labels.get("com.docker.compose.project")
+        return {
+            "project": labels.get("com.docker.compose.project"),
+            "config_files": labels.get("com.docker.compose.project.config_files"),
+            "working_dir": labels.get("com.docker.compose.project.working_dir"),
+        }
 
     def _by_project(self, project: str) -> list[dict]:
         query = urllib.parse.quote(json.dumps({"label": [f"com.docker.compose.project={project}"]}))
@@ -138,14 +159,12 @@ class SystemInfo:
             names = [n.lstrip("/") for n in container.get("Names") or []]
             if any(n.startswith(f"{self.prefix}-") for n in names):
                 found[container["Id"]] = container
-        # Los contenedores de `docker compose run` son de usar y tirar: no forman parte del
-        # equipo aunque lleven la etiqueta del proyecto.
-        return [c for c in found.values()
-                if (c.get("Labels") or {}).get("com.docker.compose.oneoff") != "True"]
+        return [c for c in found.values() if _created_by_compose(c)]
 
     def _build_containers(self) -> list[dict]:
         if not self.docker:
             return []
+        mine = self.identity()
         out = []
         for container in self._list_raw():
             names = [n.lstrip("/") for n in container.get("Names") or []]
@@ -168,6 +187,12 @@ class SystemInfo:
                 "restarts": state.get("RestartCount", 0),
                 "health": ((state.get("Health") or {}).get("Status")),
                 "ports": self._ports(container.get("Ports") or []),
+                # True = lo creó OTRO docker-compose (otro checkout o otro fichero), aunque
+                # comparta red y prefijo con esta consola. Verlo explicado evita el rato de
+                # preguntarse por qué la consola no se entera de algo.
+                "foreign": bool(mine.get("config_files"))
+                           and labels.get("com.docker.compose.project.config_files")
+                               != mine.get("config_files"),
             })
         return sorted(out, key=lambda c: c["name"])
 
@@ -348,6 +373,7 @@ class SystemInfo:
         data = {
             "prefix": self.prefix,
             "project": self.project(),
+            "compose_file": self.identity().get("config_files"),
             "docker": bool(self.docker),
             "containers": containers,
             "network": self.network(),

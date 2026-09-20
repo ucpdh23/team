@@ -126,7 +126,10 @@ function renderContainers(data, stats) {
     return `<tr class="${running ? "" : "down"}">
       <td><span class="dot" style="background:${color}"></span>${c.role}
           ${data.link && data.link.available && data.link.hub === c.role
-             ? '<span class="tag">hub</span>' : ""}</td>
+             ? '<span class="tag">hub</span>' : ""}
+          ${c.foreign
+             ? '<span class="tag" title="Lo creó otro docker-compose (otro checkout o fichero), aunque comparta red y prefijo">otro compose</span>'
+             : ""}</td>
       <td>${running
         ? `<span class="state up">up</span> ${duration(c.uptime_s)}`
         : `<span class="state down">${c.state}</span> ${c.exit_code != null ? `(${c.exit_code})` : ""}`}</td>
