@@ -206,6 +206,28 @@ class EventStore:
 
     # ---------------------------------------------------------------- retención
 
+    def delete(self, before=None, agent=None, type_prefix=None) -> int:
+        """Borrado manual, siempre acotado.
+
+        Exige al menos un filtro a propósito: un `DELETE /api/events` desnudo que se llevara
+        el histórico entero por descuido no es una función, es una trampa.
+        """
+        clauses, params = [], []
+        if before is not None:
+            clauses.append("ts < ?")
+            params.append(int(before))
+        if agent:
+            clauses.append("(agent = ? OR peer = ?)")
+            params += [agent, agent]
+        if type_prefix:
+            clauses.append("type LIKE ?")
+            params.append(f"{type_prefix}%")
+        if not clauses:
+            raise ValueError("hay que acotar el borrado con before, agent o type")
+        return self.db.execute(
+            f"DELETE FROM events WHERE {' AND '.join(clauses)}", tuple(params)
+        )
+
     def purge(self) -> int:
         """Borra lo más viejo que la retención configurada. Devuelve cuántas filas cayeron."""
         if self.retention_days <= 0:

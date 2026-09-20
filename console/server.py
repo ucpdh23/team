@@ -20,6 +20,7 @@ from .config import Config
 from .db import Database
 from .docker_api import DockerAPI
 from .events import MAX_EVENTS_PER_REQUEST, EventStore
+from .inbox import Inbox
 from .system import SystemInfo
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -43,7 +44,7 @@ _CONTENT_TYPES = {
 
 
 def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
-                  system: SystemInfo):
+                  system: SystemInfo, inbox: Inbox):
     class Handler(BaseHTTPRequestHandler):
         # Silencia el log por defecto (una línea por request) para no ensuciar la salida del
         # contenedor, que es donde se ven los avisos que sí importan.
@@ -138,7 +139,9 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 return
 
             if parsed.path == "/api/system":
-                self._json_or_error(lambda: system.snapshot(), extra_headers)
+                self._json_or_error(
+                    lambda: {**system.snapshot(), "inbox": inbox.stats()}, extra_headers
+                )
                 return
 
             if parsed.path == "/api/system/stats":
@@ -173,6 +176,12 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 ), extra_headers)
                 return
 
+            if parsed.path == "/api/inbox":
+                self._json_or_error(lambda: {
+                    "pending": inbox.pending((query.get("agent") or [None])[0]),
+                }, extra_headers)
+                return
+
             if parsed.path == "/api/events/stats":
                 self._json_or_error(lambda: events.stats(), extra_headers)
                 return
@@ -188,7 +197,15 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 self._send_json({"error": "unauthorized"}, status=401)
                 return
 
-            if parsed.path != "/api/events":
+            # POST /api/inbox/<id>/ack no lleva cuerpo: se resuelve antes de leerlo.
+            if parsed.path.startswith("/api/inbox/") and parsed.path.endswith("/ack"):
+                note_id = parsed.path[len("/api/inbox/"):-len("/ack")]
+                ok = inbox.ack(note_id)
+                self._send_json({"acked": ok}, status=200 if ok else 404,
+                                extra_headers=extra_headers)
+                return
+
+            if parsed.path not in ("/api/events", "/api/link/send", "/api/inbox/take"):
                 self.send_error(404, "Not found")
                 return
 
@@ -199,6 +216,29 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 payload = json.loads(body.decode("utf-8"))
             except (ValueError, UnicodeDecodeError) as exc:
                 self._send_json({"error": f"json inválido: {exc}"}, status=400)
+                return
+
+            if parsed.path == "/api/link/send":
+                if not isinstance(payload, dict):
+                    self._send_json({"error": "se espera un objeto {to, content}"}, status=400)
+                    return
+                try:
+                    result = inbox.send(
+                        payload.get("to", ""), payload.get("content", ""), payload.get("job"),
+                    )
+                except ValueError as exc:
+                    self._send_json({"error": str(exc)}, status=400)
+                    return
+                # 202: la consola acepta el aviso y se encarga; la entrega ocurre cuando el
+                # agente pase a recogerlo (ver console/inbox.py).
+                self._send_json(result, status=202, extra_headers=extra_headers)
+                return
+
+            # La recogida cambia estado (marca lo entregado para poder reentregar), así que es
+            # un POST y no un GET: /api/inbox, que sí es de solo lectura, se queda en GET.
+            if parsed.path == "/api/inbox/take":
+                agent = payload.get("agent", "") if isinstance(payload, dict) else ""
+                self._json_or_error(lambda: {"notes": inbox.take(agent)}, extra_headers)
                 return
 
             batch = payload if isinstance(payload, list) else [payload]
@@ -217,6 +257,29 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
             # 202: la consola confirma recepción, no procesamiento. Quien emite no debe
             # esperar nada más que esto.
             self._send_json(result, status=202, extra_headers=extra_headers)
+
+        def do_DELETE(self):
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+
+            authorized, extra_headers = self._authorize(query)
+            if not authorized:
+                self._send_json({"error": "unauthorized"}, status=401)
+                return
+
+            if parsed.path != "/api/events":
+                self.send_error(404, "Not found")
+                return
+            try:
+                removed = events.delete(
+                    before=_int_param(query, "before"),
+                    agent=(query.get("agent") or [None])[0],
+                    type_prefix=(query.get("type") or [None])[0],
+                )
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=400)
+                return
+            self._send_json({"deleted": removed}, extra_headers=extra_headers)
 
         def _read_body(self) -> bytes | None:
             try:
@@ -249,6 +312,7 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 "containers": containers,
                 "auth": bool(config.token),
                 "events": events.stats(),
+                "inbox": inbox.stats(),
             }
 
     return Handler
@@ -262,18 +326,27 @@ def _int_param(query: dict, name: str):
         return None
 
 
-def _start_retention(events: EventStore) -> None:
-    """Purga al arrancar y una vez al día. Un hilo demonio: no retiene el cierre del proceso."""
+def _start_retention(events: EventStore, inbox: Inbox) -> None:
+    """Purga al arrancar y luego a diario. Hilo demonio: no retiene el cierre del proceso.
+
+    Los avisos caducados se miran cada hora y no una vez al día: su TTL se cuenta en horas.
+    """
     def loop():
+        ticks = 0
         while True:
             try:
-                removed = events.purge()
-                if removed:
-                    print(f"[console] retención: {removed} eventos borrados "
-                          f"(> {events.retention_days} días)")
+                if ticks % 24 == 0:
+                    removed = events.purge()
+                    if removed:
+                        print(f"[console] retención: {removed} eventos borrados "
+                              f"(> {events.retention_days} días)")
+                expired = inbox.purge()
+                if expired:
+                    print(f"[console] {expired} aviso(s) caducados sin entregar")
             except Exception as exc:  # noqa: BLE001 — la purga no puede tumbar el servidor
-                print(f"[console] aviso: falló la purga de eventos: {exc}")
-            time.sleep(86_400)
+                print(f"[console] aviso: falló la purga: {exc}")
+            ticks += 1
+            time.sleep(3600)
 
     threading.Thread(target=loop, daemon=True, name="retention").start()
 
@@ -287,10 +360,11 @@ def serve(config: Config) -> int:
     config.data_dir.mkdir(parents=True, exist_ok=True)
     db = Database(config.data_dir / "console.db")
     events = EventStore(db, retention_days=config.event_retention_days)
-    _start_retention(events)
+    inbox = Inbox(db, events, ttl_hours=config.inbox_ttl_hours)
+    _start_retention(events, inbox)
     system = SystemInfo(docker, config.container_prefix)
 
-    handler = _make_handler(config, docker, events, system)
+    handler = _make_handler(config, docker, events, system, inbox)
     try:
         httpd = ThreadingHTTPServer(("0.0.0.0", config.port), handler)
     except OSError as exc:
@@ -300,6 +374,9 @@ def serve(config: Config) -> int:
     print(f"[console] datos de coste:  {config.cost_dir}")
     print(f"[console] base de datos:    {db.path} ({events.count()} eventos, "
           f"retención {config.event_retention_days} días)")
+    pending = inbox.stats()["pending"]
+    if pending:
+        print(f"[console] avisos pendientes de entregar: {pending}")
     if not config.cost_dir.is_dir():
         print(f"[console] aviso: {config.cost_dir} no existe todavía (dashboard vacío).")
     if config.docker_socket:

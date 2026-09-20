@@ -21,7 +21,7 @@ from pathlib import Path
 
 # Se sube cuando cambia el esquema; `migrate()` aplica lo que falte. PRAGMA user_version viene
 # en el propio fichero, así que no hace falta una tabla de versiones.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -37,6 +37,22 @@ CREATE INDEX IF NOT EXISTS events_ts       ON events(ts DESC);
 CREATE INDEX IF NOT EXISTS events_agent_ts ON events(agent, ts DESC);
 CREATE INDEX IF NOT EXISTS events_pair_ts  ON events(agent, peer, ts DESC);
 CREATE INDEX IF NOT EXISTS events_type_ts  ON events(type, ts DESC);
+
+-- Avisos que la consola tiene que hacer llegar a un agente (los crea el cron, ver
+-- console/inbox.py). No es un buzón de mensajes: es una cola de trabajo pendiente que se
+-- vacía en cuanto el agente confirma la entrega, y de la que solo queda el metadato en
+-- `events`. El texto vive aquí lo justo para poder entregarlo.
+CREATE TABLE IF NOT EXISTS inbox (
+  id         TEXT PRIMARY KEY,
+  agent      TEXT NOT NULL,      -- destinatario
+  content    TEXT NOT NULL,
+  job        TEXT,               -- job de cron que lo generó, si viene de ahí
+  created_ts INTEGER NOT NULL,
+  expires_ts INTEGER NOT NULL,   -- un aviso entregado tarde es ruido, no información
+  taken_ts   INTEGER,            -- cuándo se lo llevó la extensión (para reentregar)
+  attempts   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS inbox_agent ON inbox(agent, created_ts);
 """
 
 

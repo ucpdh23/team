@@ -281,6 +281,9 @@ services:
       # El contenedor solo ve su 0.0.0.0 interno: recibe CONSOLE_BIND para poder avisar de que
       # queda accesible sin autenticación desde fuera de esta máquina.
       - CONSOLE_BIND=${CONSOLE_BIND:-127.0.0.1}
+      # Horas que un aviso programado espera a su agente antes de caducar (ver console/inbox.py):
+      # entregar "revisa los tickets de hoy" tres días tarde es ruido, no información.
+      - CONSOLE_INBOX_TTL_HOURS=${CONSOLE_INBOX_TTL_HOURS:-24}
       # Vacío = sin autenticación. Si se define, se exige en toda petición (cabecera
       # X-Console-Token, cookie, o ?token= una vez desde el navegador).
       - CONSOLE_TOKEN=${CONSOLE_TOKEN:-}

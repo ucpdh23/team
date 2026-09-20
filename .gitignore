@@ -27,3 +27,7 @@ tmp/*
 !tmp/scripts/
 tmp/scripts/*
 !tmp/scripts/.gitkeep
+
+# Capturas y vídeos que deja la prueba de interfaz de la consola (console/tests/README.md)
+console/tests/cypress/screenshots/
+console/tests/cypress/videos/

@@ -102,8 +102,10 @@ function renderMeta(data) {
   const linkText = link.available
     ? `malla pi-link: hub en ${link.hub}, ${Object.keys(link.terminals || {}).length} conectados`
     : `malla pi-link: sin datos (${link.reason || "desconocido"})`;
+  const pending = (data.inbox || {}).pending || 0;
   root.querySelector("#sys-meta").textContent =
     `${up}/${data.containers.length} contenedores en marcha · ${linkText}` +
+    (pending ? ` · ${pending} aviso(s) del cron pendientes de entregar` : "") +
     (data.docker ? "" : " · sin acceso al socket de Docker");
 }
 
