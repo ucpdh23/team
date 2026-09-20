@@ -148,6 +148,32 @@ python setup.py --start     # docker compose up -d --build
 python setup.py --git-clone # git clone each role's REPO_URL into its /workspace, if set
 ```
 
+### Updating without losing what's inside a container
+
+A container is recreated when the hash of its service definition changes, or when its image
+does — not merely because you ran `--start`. That matters because **only volumes survive a
+recreation**: `/workspace`, `~/.pi/agent`, `backend`'s Eclipse workspace and `cost-tracking/`
+are volumes and persist, but anything installed by hand inside a container is not. An Eclipse
+plugin added from the Marketplace, for instance, lands in `/opt/eclipse`, which lives in the
+image layer and is gone the next time that container is recreated.
+
+Two options keep an update from touching more than it has to:
+
+```bash
+python setup.py --update console            # only this service; the rest of the team is left alone
+python setup.py --update backend console    # several at once
+python setup.py --start --no-build          # bring everything up without rebuilding images
+```
+
+`--no-build` also works with `--update`. Use it when you only want things running: a rebuild
+can produce a new image — and therefore a recreation — even when the code you care about did
+not change, because any file inside what the `Dockerfile` copies invalidates that layer.
+
+If a customization matters, the durable answer is to put it in the image (`docker/Dockerfile.<role>`)
+or in a volume, rather than installing it inside a running container. `docker compose up -d
+--no-recreate` is the escape hatch when you need to start something *right now* without
+touching an existing container.
+
 ## Configuration (`.env`)
 
 `setup.py --init` walks through every variable in `.env.example`, proposing its value as

@@ -224,8 +224,34 @@ def run_compose(*compose_args) -> int:
     return run_docker("compose", *compose_args)
 
 
+def compose_up(services=(), build=True) -> int:
+    """`docker compose up -d` sobre todo el equipo o sobre los servicios indicados.
+
+    Compose no recrea un contenedor porque se ejecute esto, sino cuando cambia el hash de la
+    definición de su servicio — o cuando su imagen es otra. De ahí las dos opciones de abajo:
+    `--no-build` evita que una reconstrucción genere una imagen nueva (y con ella una
+    recreación) cuando lo único que se quiere es levantar lo que ya existe, y `--update`
+    limita la operación a los servicios que de verdad han cambiado, dejando al resto intactos.
+
+    Importa porque lo que vive dentro de un contenedor y no en un volumen —por ejemplo un
+    plugin instalado a mano en el Eclipse de `backend`, que está en /opt/eclipse y no en el
+    volumen del workspace— desaparece en cuanto ese contenedor se recrea.
+    """
+    args = ["up", "-d"]
+    if build:
+        args.append("--build")
+    return run_compose(*args, *services)
+
+
 def cmd_start(args) -> int:
-    return run_compose("up", "-d", "--build")
+    return compose_up(build=not args.no_build)
+
+
+def cmd_update(args) -> int:
+    servicios = args.update
+    print(f"[setup] actualizando solo: {', '.join(servicios)} "
+          f"(el resto del equipo no se toca)")
+    return compose_up(servicios, build=not args.no_build)
 
 
 def cmd_stop(args) -> int:
@@ -528,7 +554,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--start",
         action="store_true",
         help="Equivalente a 'docker compose up -d --build': construye (si hace falta) y "
-        "levanta los 5 contenedores en segundo plano.",
+        "levanta todos los contenedores en segundo plano.",
+    )
+    parser.add_argument(
+        "--update",
+        nargs="+",
+        metavar="SERVICIO",
+        choices=SERVICES,
+        help="Levanta/actualiza SOLO esos servicios, dejando el resto del equipo como está. "
+        "Útil cuando un cambio afecta a un contenedor y no quieres que los demás se "
+        "recreen (lo instalado a mano dentro de un contenedor se pierde al recrearlo). "
+        f"Servicios: {', '.join(SERVICES)}.",
+    )
+    parser.add_argument(
+        "--no-build",
+        action="store_true",
+        help="Con --start o --update, no reconstruye las imágenes. Evita que una imagen nueva "
+        "provoque recrear un contenedor cuando solo querías levantarlo.",
     )
     parser.add_argument(
         "--stop",
@@ -618,6 +660,8 @@ def main(argv=None) -> int:
         return cmd_init(args)
     if args.start:
         return cmd_start(args)
+    if args.update:
+        return cmd_update(args)
     if args.stop:
         return cmd_stop(args)
     if args.tmux:
