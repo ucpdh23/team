@@ -1,9 +1,10 @@
 # Architecture
 
 Technical/internal detail for **team-pi**: how the 5 containers discover and talk to each
-other over pi-link, how a role can ship more than one language variant of its image, and how
-the `java` backend's headless Eclipse (`jdtbridge`) is wired up. For what this project is, why
-it's organized into 5 roles, and the commands to actually run it, see [`README.md`](README.md).
+other over pi-link, how a role can ship more than one language variant of its image, how the
+`java` backend's headless Eclipse (`jdtbridge`) is wired up, and how the `console` container
+watches all of it without taking part. For what this project is, why it's organized into 5
+roles, and the commands to actually run it, see [`README.md`](README.md).
 
 ## Container topology & the pi-link mesh
 
@@ -21,6 +22,10 @@ it's organized into 5 roles, and the commands to actually run it, see [`README.m
                                       ▼
                     shared "pi-link-coord" volume (hub election via flock)
 ```
+
+A sixth container, **`console`**, shares that network without being part of the mesh: it runs
+no `pi`, no broker, and never competes for the hub lock. It observes and schedules — see
+[`console`: watching the team](#console-watching-the-team) below.
 
 Every container is independent at the network level — there is no "special" container at
 the infrastructure level. The 3 components running inside each one:
@@ -162,6 +167,112 @@ reflects those changes once refreshed (`jdt refresh`, or its own file-watcher if
 noVNC shows you the current indexed/compiled/debug state, not a live keystroke-by-keystroke
 view. For watching the agent's own terminal in real time, use `python setup.py --tmux
 backend` instead.
+
+
+## `console`: watching the team
+
+The sixth container in `docker-compose.yml` is not an agent. It runs no `pi`, has no tmux
+session, no workspace and no repository, and takes no part in the pi-link mesh. What it does
+is answer the questions the team cannot answer about itself: what is running, what is it
+costing, who is talking to whom, and what should happen at eight in the evening.
+
+For what each tab shows and how to configure it, see [The console](README.md#the-console) in
+the README. What follows is why it is built the way it is.
+
+### Three channels, kept separate on purpose
+
+| Channel | Direction | Carries |
+|---|---|---|
+| `POST /api/events` | agent → console | Who talked to whom, through a pi extension |
+| `POST /api/inbox/take` + `/ack` | agent → console | The agent collecting scheduled notices for itself |
+| `GET http://<hub>:9901/status` | console → mesh | Each agent's live state, read-only |
+| Docker socket | console → host daemon | Container inventory, network, disk, tmux panes |
+
+The direction matters: **the agents call the console, never the other way round**. That is
+what makes the console optional infrastructure — if it is down or being rebuilt, the five
+agents keep working and nothing about their behaviour changes.
+
+### Why the console does not join the mesh
+
+Sending a message over pi-link requires registering: the hub drops anything arriving from an
+unregistered socket, and it overwrites the `from` field with the name the sender registered
+under, so there is no "just send one message". And registering is not free — it broadcasts
+`terminal_joined` and puts the console in all five agents' `link_list`, where `manager`, whose
+job is handing work to whoever it sees connected, would eventually try to delegate to it.
+Hiding in another pi-link group (`console@ops`) does not help either: group isolation blocks
+routing between groups, so the console would be invisible *and* mute.
+
+So the console never registers. Instead, the extension every agent already carries polls
+`/api/inbox/take` for notices addressed to it and injects them with
+`pi.sendMessage(..., { triggerTurn: true })` — the exact mechanism pi-link itself uses, so the
+agent starts a turn even when idle. Beyond having no presence, this buys two things the
+WebSocket route could not: an `ack`, so the console knows a notice was actually delivered, and
+a notice for a stopped agent waiting in the queue instead of failing with "terminal not found".
+
+`triggerTurn` is load-bearing rather than cosmetic. A custom message only reaches the agent —
+and therefore other extensions — when it goes through the agent: `_appendCustomMessage()` in
+pi's `agent-session.js` calls `_emit()`, which walks the UI listeners only, while extension
+events come from `_handleAgentEvent`, subscribed to the agent. Anything injecting custom
+messages later must go through the agent or it will be invisible to everything but the screen.
+
+For live state the console uses the hub's own `GET /status` (an HTTP endpoint the hub serves
+on the port the broker already exposes). It is read-only, requires no registration, and
+returns the full roster with each terminal's status and context usage — so the console can
+show what every agent is doing without existing, as far as the mesh is concerned.
+
+### What is recorded about the conversation
+
+Only metadata: sender, recipient, timestamp, size. **Never the message text.** Fragments of
+the projects the agents work on travel over that mesh — code, paths, occasionally a credential
+being debugged — and none of it belongs in an observability database. The promise is enforced
+where the data is stored, not left to the emitters: the ingest drops any field that looks like
+it carries text, so a future emitter cannot smuggle a conversation in by accident.
+
+The primary source is the **sending** side (`link_send`), which carries the exact recipient and
+the real instant. The receiving side is complementary: it measures how long delivery took —
+pi-link batches incoming messages in 200 ms windows and holds them during compaction — and it
+still sees agents whose own extension is missing.
+
+One extension file serves all five roles. `docker-compose.yml` mounts
+`agents/_shared/pi/extensions/team-console` *inside* each role's existing extensions mount;
+Docker applies bind mounts by path depth, so the role's own directory survives underneath, and
+pi finds it because it also looks in `~/.pi/agent/extensions/<dir>/index.ts`.
+
+### Docker-outside-of-Docker, again — and what it costs
+
+The console mounts the host's Docker socket, exactly like `devops` (see the section above and
+its security note, which applies here word for word: anything that can talk to that socket has
+root-level control of the host). It is what makes four things possible that pi-link cannot
+answer: the container inventory including **stopped** agents, CPU/memory, the network and disk
+usage, and `exec` for the tmux mosaic. No `docker` client is installed — the API is HTTP over
+a unix socket, spoken with `http.client`, including the 8-byte framed stream that `exec`
+answers with.
+
+The difference from `devops` is that here there is a web in front of the socket, which is why:
+the port is published on loopback by default, the cron can only run scripts already present in
+the mounted catalog (there is no free-form command field), and starting with the port bound
+beyond loopback without a `CONSOLE_TOKEN` prints a warning.
+
+### Identifying the team
+
+A container belongs to the team if Compose created it (label
+`com.docker.compose.container-number`, which Compose writes on containers and never on images)
+**and** it either shares the console's Compose project or starts with `CONTAINER_PREFIX`. Both
+criteria are used because each fails alone: a team started from another checkout is only found
+by the prefix, and containers created before someone changed `CONTAINER_PREFIX` are only found
+by the project. The `container-number` requirement is what keeps a plain
+`docker run team-pi-manager` out of the table — Compose stamps `project` and `service` onto the
+images it builds, and containers inherit their image's labels.
+
+### Storage
+
+One SQLite file in the `console-data` volume holds everything the console has to remember:
+message metadata, the notice queue, cron jobs, their runs and the scripts' persistent state.
+SQLite rather than the JSONL files `cost-tracking/` uses, because here a single process writes
+— the JSONL format exists there precisely because five containers write at once — and because
+every refresh aggregates by agent, by pair and by time window, which in JSONL means re-reading
+the whole history each time. Costs stay where they are: they are read from the same `.jsonl`
+files the agents write, with no second source of truth.
 
 ## `devops`: Docker-outside-of-Docker
 

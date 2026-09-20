@@ -17,3 +17,17 @@ cost-tracking/*/*
 # Cachés de Python
 __pycache__/
 *.pyc
+
+# Carpeta de trabajo local: material que no forma parte del proyecto (clones para consultar,
+# notas, pruebas). Excepción: tmp/scripts/ SÍ existe en el checkout aunque su contenido no se
+# versione — es lo que el contenedor `console` monta para el cron (ver docker-compose.yml), y
+# si el directorio no existiera, Docker lo crearía al levantar con dueño root, obligando a
+# escribir los scripts con sudo. Mismo patrón que cost-tracking/*/.gitkeep de arriba.
+tmp/*
+!tmp/scripts/
+tmp/scripts/*
+!tmp/scripts/.gitkeep
+
+# Capturas y vídeos que deja la prueba de interfaz de la consola (console/tests/README.md)
+console/tests/cypress/screenshots/
+console/tests/cypress/videos/

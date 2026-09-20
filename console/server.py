@@ -1,29 +1,38 @@
-"""Servidor del dashboard de consumo (solo librería estándar).
+"""Servidor HTTP de la consola (solo librería estándar).
 
-Lee los `.jsonl` de `pi-cost-counter` bajo una carpeta `cost-tracking/` con la forma
-`cost-tracking/<rol>/<AAAA>/<MM>/<DD>.jsonl`, donde cada línea es un registro como:
-
-    {"ts": 1789717967858, "provider": "...", "model": "...",
-     "tokens": {"input": 10026, "output": 308, "cacheRead": 0, "cacheWrite": 0},
-     "cost":   {"input": 0.025, "output": 0.004, "cacheRead": 0, "cacheWrite": 0,
-                "total": 0.0296}}
-
-Expone una API JSON y sirve los estáticos de `console/static/`. El grueso del dibujado
-(gráficas) ocurre en el navegador con Chart.js; aquí solo agregamos.
+Enruta la API y sirve los estáticos de `console/static/`. El cálculo de los datos vive en los
+módulos de al lado (`costs.py` hoy; eventos, cron y tmux según se vayan añadiendo), para que
+este fichero siga siendo solo transporte: rutas, JSON, ficheros y autenticación.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta
+import threading
+import time
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-# Mismo orden y nombres que el resto del proyecto (ver setup.py: ROLES).
-ROLES = ("manager", "backend", "frontend", "devops", "cypress")
+from . import costs
+from .config import Config
+from .db import Database
+from .docker_api import DockerAPI
+from .events import MAX_EVENTS_PER_REQUEST, EventStore
+from .cron import CronManager
+from .inbox import Inbox
+from .system import SystemInfo
+from .tmux import TmuxView
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+# Tope del cuerpo de un POST. La ingesta manda lotes de metadatos (un evento ocupa ~80 bytes),
+# así que 1 MiB es holgado y evita que una petición mal formada se coma la memoria.
+MAX_BODY_BYTES = 1 << 20
+
+TOKEN_COOKIE = "console_token"
+TOKEN_HEADER = "X-Console-Token"
 
 _CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -31,249 +40,43 @@ _CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".json": "application/json; charset=utf-8",
     ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".map": "application/json; charset=utf-8",
 }
 
 
-# --------------------------------------------------------------------------- datos
+def _path_parts(path: str, prefix: str) -> list[str]:
+    """Trozos de una ruta bajo `prefix`, o [] si no cuelga de ahí.
 
-def _iter_records(cost_dir: Path):
-    """Recorre todos los .jsonl bajo cost_dir/<rol>/** y produce (rol, registro dict).
-
-    Ignora líneas vacías o no parseables en vez de abortar: los ficheros se escriben en vivo
-    desde los contenedores y una última línea a medio escribir no debe tirar el dashboard.
+    Con la cantidad de rutas que tiene ya la API, comparar cadenas enteras a mano deja de
+    leerse; esto permite `/api/cron/jobs/<id>/run` sin montar un enrutador entero.
     """
-    for role in ROLES:
-        role_dir = cost_dir / role
-        if not role_dir.is_dir():
-            continue
-        for jsonl in sorted(role_dir.rglob("*.jsonl")):
-            try:
-                text = jsonl.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            for line in text.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(rec, dict) and isinstance(rec.get("ts"), (int, float)):
-                    yield role, rec
+    if not path.startswith(prefix):
+        return []
+    return [part for part in path[len(prefix):].split("/") if part]
 
 
-def _load(cost_dir: Path):
-    """Aplana todos los registros a tuplas ligeras y ordenables por tiempo.
-
-    Cada tupla es (rol, ts_ms, coste_total, tokens_totales, modelo). El modelo lleva el
-    proveedor por delante (p.ej. 'github-copilot/gpt-5.4') porque dos proveedores pueden servir
-    modelos con el mismo nombre y no queremos que se sumen como si fueran uno.
-    """
-    out = []
-    for role, rec in _iter_records(cost_dir):
-        cost = rec.get("cost") or {}
-        tokens = rec.get("tokens") or {}
-        total_cost = cost.get("total")
-        if not isinstance(total_cost, (int, float)):
-            total_cost = sum(
-                v for k, v in cost.items()
-                if k != "total" and isinstance(v, (int, float))
-            )
-        total_tokens = sum(v for v in tokens.values() if isinstance(v, (int, float)))
-        provider = str(rec.get("provider") or "").strip()
-        model = str(rec.get("model") or "desconocido").strip() or "desconocido"
-        label = f"{provider}/{model}" if provider else model
-        out.append((role, float(rec["ts"]), float(total_cost), float(total_tokens), label))
-    return out
-
-
-def _bucket_key(dt: datetime, unit: str) -> str:
-    if unit == "hour":
-        return dt.strftime("%Y-%m-%d %H")
-    return dt.strftime("%Y-%m-%d")
-
-
-def _labels_and_keys(unit: str, starts: list[datetime]):
-    """Etiquetas legibles y claves internas para una lista de inicios de bucket.
-
-    Con buckets por hora que abarcan más de un día natural, la etiqueta incluye el día para no
-    ser ambigua ('18 09h' vs '09:00'); en un solo día basta la hora.
-    """
-    if unit == "hour":
-        multiday = len({d.date() for d in starts}) > 1
-        label = (lambda d: d.strftime("%d %Hh")) if multiday else (lambda d: d.strftime("%H:%M"))
-    else:
-        label = lambda d: d.strftime("%d %b")
-    keys = [_bucket_key(d, unit) for d in starts]
-    labels = [label(d) for d in starts]
-    return keys, labels
-
-
-def _preset_starts(anchor: datetime, range_: str):
-    """Buckets para los presets, terminando en el ancla (el registro más reciente).
-
-    El ancla es el registro MÁS RECIENTE de los datos, no la hora del reloj: así un export
-    histórico siempre pinta algo útil aunque se abra semanas después. 'day' = 24 buckets por
-    hora; 'week' = 7 buckets por día.
-    """
-    if range_ == "day":
-        unit, count, step = "hour", 24, timedelta(hours=1)
-        end = anchor.replace(minute=0, second=0, microsecond=0)
-    else:
-        unit, count, step = "day", 7, timedelta(days=1)
-        end = anchor.replace(hour=0, minute=0, second=0, microsecond=0)
-    return unit, [end - step * (count - 1 - i) for i in range(count)]
-
-
-def _date_range_starts(start: date, end: date):
-    """Buckets para un rango de fechas [start, end] elegido en el calendario.
-
-    Granularidad automática: hasta 2 días naturales se muestra por hora (detalle intradía);
-    a partir de ahí, por día, para que un rango largo no genere cientos de barras.
-    """
-    if start > end:
-        start, end = end, start
-    span_days = (end - start).days + 1
-    if span_days <= 2:
-        unit, step = "hour", timedelta(hours=1)
-        cur = datetime(start.year, start.month, start.day)
-        last = datetime(end.year, end.month, end.day, 23)
-    else:
-        unit, step = "day", timedelta(days=1)
-        cur = datetime(start.year, start.month, start.day)
-        last = datetime(end.year, end.month, end.day)
-    starts = []
-    while cur <= last:
-        starts.append(cur)
-        cur += step
-    return unit, starts
-
-
-def _parse_date(value: str | None) -> date | None:
-    if not value:
-        return None
-    try:
-        return datetime.strptime(value.strip(), "%Y-%m-%d").date()
-    except ValueError:
-        return None
-
-
-def data_bounds(cost_dir: Path) -> dict:
-    """Primera y última fecha con datos, para inicializar el calendario del frontend."""
-    records = _load(cost_dir)
-    if not records:
-        return {"empty": True, "min": None, "max": None, "cost_dir": str(cost_dir)}
-    lo = datetime.fromtimestamp(min(r[1] for r in records) / 1000.0).date()
-    hi = datetime.fromtimestamp(max(r[1] for r in records) / 1000.0).date()
-    return {
-        "empty": False,
-        "min": lo.isoformat(),
-        "max": hi.isoformat(),
-        "cost_dir": str(cost_dir),
-    }
-
-
-def build_payload(cost_dir: Path, range_: str = "day",
-                  start: str | None = None, end: str | None = None) -> dict:
-    start_date = _parse_date(start)
-    end_date = _parse_date(end)
-    use_dates = start_date is not None and end_date is not None
-    if not use_dates:
-        range_ = "week" if range_ == "week" else "day"
-
-    records = _load(cost_dir)
-
-    if not records:
-        return {
-            "range": range_, "empty": True, "labels": [], "series": {},
-            "total_series": [], "cost_by_role": {}, "tokens_by_role": {},
-            "calls_by_role": {}, "models": [],
-            "cost_by_role_model": {}, "calls_by_role_model": {},
-            "grand_total": 0.0, "grand_tokens": 0.0, "grand_calls": 0,
-            "anchor": None, "records": 0, "cost_dir": str(cost_dir),
-        }
-
-    anchor_ms = max(r[1] for r in records)
-    anchor_dt = datetime.fromtimestamp(anchor_ms / 1000.0)
-    if use_dates:
-        unit, starts = _date_range_starts(start_date, end_date)
-        window_label = f"{min(start_date, end_date)} → {max(start_date, end_date)}"
-    else:
-        unit, starts = _preset_starts(anchor_dt, range_)
-        window_label = anchor_dt.strftime("%Y-%m-%d %H:%M")
-    keys, labels = _labels_and_keys(unit, starts)
-    key_index = {k: i for i, k in enumerate(keys)}
-
-    n = len(keys)
-    series = {role: [0.0] * n for role in ROLES}
-    cost_by_role = {role: 0.0 for role in ROLES}
-    tokens_by_role = {role: 0.0 for role in ROLES}
-    calls_by_role = {role: 0 for role in ROLES}
-    cost_by_role_model = {role: {} for role in ROLES}
-    calls_by_role_model = {role: {} for role in ROLES}
-    cost_by_model = {}
-
-    for role, ts, cost, tokens, model in records:
-        idx = key_index.get(_bucket_key(datetime.fromtimestamp(ts / 1000.0), unit))
-        if idx is None:
-            continue
-        series[role][idx] += cost
-        cost_by_role[role] += cost
-        tokens_by_role[role] += tokens
-        calls_by_role[role] += 1
-        cost_by_role_model[role][model] = cost_by_role_model[role].get(model, 0.0) + cost
-        calls_by_role_model[role][model] = calls_by_role_model[role].get(model, 0) + 1
-        cost_by_model[model] = cost_by_model.get(model, 0.0) + cost
-
-    # Solo los roles con algún gasto en la ventana: evita líneas planas a cero (frontend,
-    # cypress...) que solo añaden ruido a la leyenda.
-    active = [role for role in ROLES if cost_by_role[role] > 0]
-    total_series = [sum(series[role][i] for role in active) for i in range(n)]
-    # Modelos ordenados por coste descendente: fija un orden estable para colores y leyendas.
-    models = sorted(cost_by_model, key=lambda m: cost_by_model[m], reverse=True)
-
-    return {
-        "range": range_,
-        "mode": "dates" if use_dates else "preset",
-        "window": window_label,
-        "empty": False,
-        "unit": unit,
-        "labels": labels,
-        "series": {role: series[role] for role in active},
-        "total_series": total_series,
-        "cost_by_role": {role: cost_by_role[role] for role in active},
-        "tokens_by_role": {role: tokens_by_role[role] for role in active},
-        "calls_by_role": {role: calls_by_role[role] for role in active},
-        "models": models,
-        "cost_by_role_model": {role: cost_by_role_model[role] for role in active},
-        "calls_by_role_model": {role: calls_by_role_model[role] for role in active},
-        "grand_total": sum(cost_by_role[role] for role in active),
-        "grand_tokens": sum(tokens_by_role[role] for role in active),
-        "grand_calls": sum(calls_by_role[role] for role in active),
-        "anchor": anchor_dt.strftime("%Y-%m-%d %H:%M"),
-        "records": len(records),
-        "cost_dir": str(cost_dir),
-    }
-
-
-# --------------------------------------------------------------------------- http
-
-def _make_handler(cost_dir: Path):
+def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
+                  system: SystemInfo, inbox: Inbox, cron: CronManager, tmux: TmuxView):
     class Handler(BaseHTTPRequestHandler):
-        # Silencia el log por defecto (una línea por request) para no ensuciar la consola.
+        # Silencia el log por defecto (una línea por request) para no ensuciar la salida del
+        # contenedor, que es donde se ven los avisos que sí importan.
         def log_message(self, *args):
             pass
 
-        def _send_json(self, obj, status=200):
+        # ---------------------------------------------------------------- utilidades
+
+        def _send_json(self, obj, status=200, extra_headers=()):
             body = json.dumps(obj).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
+            for name, value in extra_headers:
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(body)
 
-        def _send_static(self, rel: str):
+        def _send_static(self, rel: str, extra_headers=()):
             if rel in ("", "/"):
                 rel = "index.html"
             target = (STATIC_DIR / rel.lstrip("/")).resolve()
@@ -288,49 +91,449 @@ def _make_handler(cost_dir: Path):
                 _CONTENT_TYPES.get(target.suffix, "application/octet-stream"),
             )
             self.send_header("Content-Length", str(len(body)))
+            for name, value in extra_headers:
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(body)
 
+        # ------------------------------------------------------------ autenticación
+
+        def _authorize(self, query: dict) -> tuple[bool, tuple]:
+            """(autorizado, cabeceras extra a añadir a la respuesta).
+
+            Sin CONSOLE_TOKEN definido no hay autenticación ninguna: es el modo por defecto
+            (v1). Con token, vale la cabecera, la cookie o `?token=` en la URL — y en ese
+            último caso se deja la cookie puesta, que es lo que permite entrar desde el
+            navegador pegando la URL una sola vez.
+            """
+            if not config.token:
+                return True, ()
+            if self.headers.get(TOKEN_HEADER, "") == config.token:
+                return True, ()
+            cookie = SimpleCookie(self.headers.get("Cookie", ""))
+            if TOKEN_COOKIE in cookie and cookie[TOKEN_COOKIE].value == config.token:
+                return True, ()
+            if (query.get("token") or [""])[0] == config.token:
+                return True, ((
+                    "Set-Cookie",
+                    f"{TOKEN_COOKIE}={config.token}; Path=/; HttpOnly; SameSite=Strict",
+                ),)
+            return False, ()
+
+        # -------------------------------------------------------------------- rutas
+
         def do_GET(self):
             parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+
+            authorized, extra_headers = self._authorize(query)
+            if not authorized:
+                self._send_json({"error": "unauthorized"}, status=401)
+                return
+
             if parsed.path == "/api/consumption":
-                qs = parse_qs(parsed.query)
-                range_ = (qs.get("range") or ["day"])[0]
-                start = (qs.get("from") or [None])[0]
-                end = (qs.get("to") or [None])[0]
-                try:
-                    self._send_json(build_payload(cost_dir, range_, start, end))
-                except Exception as exc:  # noqa: BLE001 — el dashboard no debe caerse por un dato raro
-                    self._send_json({"error": str(exc)}, status=500)
+                range_ = (query.get("range") or ["day"])[0]
+                start = (query.get("from") or [None])[0]
+                end = (query.get("to") or [None])[0]
+                self._json_or_error(
+                    lambda: costs.build_payload(config.cost_dir, range_, start, end),
+                    extra_headers,
+                )
                 return
+
             if parsed.path == "/api/bounds":
-                try:
-                    self._send_json(data_bounds(cost_dir))
-                except Exception as exc:  # noqa: BLE001
-                    self._send_json({"error": str(exc)}, status=500)
+                self._json_or_error(
+                    lambda: costs.data_bounds(config.cost_dir), extra_headers
+                )
                 return
-            self._send_static(parsed.path)
+
+            if parsed.path == "/api/health":
+                self._json_or_error(lambda: self._health(), extra_headers)
+                return
+
+            if parsed.path == "/api/system":
+                self._json_or_error(
+                    lambda: {**system.snapshot(), "inbox": inbox.stats()}, extra_headers
+                )
+                return
+
+            if parsed.path == "/api/system/stats":
+                self._json_or_error(lambda: {"stats": system.stats()}, extra_headers)
+                return
+
+            if parsed.path == "/api/system/disk":
+                self._json_or_error(lambda: system.disk(), extra_headers)
+                return
+
+            if parsed.path == "/api/events":
+                self._json_or_error(lambda: {
+                    "events": events.query(
+                        since=_int_param(query, "since"),
+                        until=_int_param(query, "until"),
+                        agent=(query.get("agent") or [None])[0],
+                        type_prefix=(query.get("type") or [None])[0],
+                        limit=_int_param(query, "limit") or 200,
+                    ),
+                }, extra_headers)
+                return
+
+            if parsed.path == "/api/events/pulse":
+                self._json_or_error(
+                    lambda: events.pulse(since=_int_param(query, "since")), extra_headers
+                )
+                return
+
+            if parsed.path == "/api/events/graph":
+                self._json_or_error(lambda: events.graph(
+                    window_ms=_int_param(query, "window_ms") or 3_600_000,
+                ), extra_headers)
+                return
+
+            if parsed.path == "/api/inbox":
+                self._json_or_error(lambda: {
+                    "pending": inbox.pending((query.get("agent") or [None])[0]),
+                }, extra_headers)
+                return
+
+            if parsed.path == "/api/tmux/panes":
+                self._json_or_error(lambda: {"agents": tmux.agents()}, extra_headers)
+                return
+
+            tmux_pane = _path_parts(parsed.path, "/api/tmux/panes/")
+            if len(tmux_pane) == 1:
+                self._json_or_error(lambda: tmux.pane(
+                    tmux_pane[0],
+                    lines=_int_param(query, "lines") or 60,
+                    colors=(query.get("colors") or ["1"])[0] != "0",
+                ), extra_headers)
+                return
+
+            if parsed.path == "/api/cron/scripts":
+                self._json_or_error(lambda: {"scripts": cron.scripts(),
+                                             "dir": str(config.scripts_dir)}, extra_headers)
+                return
+
+            if parsed.path == "/api/cron/jobs":
+                self._json_or_error(lambda: {"jobs": cron.jobs(), "stats": cron.stats()},
+                                    extra_headers)
+                return
+
+            cron_job = _path_parts(parsed.path, "/api/cron/jobs/")
+            if len(cron_job) == 2 and cron_job[1] == "runs":
+                self._json_or_error(lambda: {"runs": cron.runs(cron_job[0])}, extra_headers)
+                return
+
+            if parsed.path == "/api/cron/runs":
+                self._json_or_error(
+                    lambda: {"runs": cron.runs(limit=_int_param(query, "limit") or 50)},
+                    extra_headers,
+                )
+                return
+
+            cron_run = _path_parts(parsed.path, "/api/cron/runs/")
+            if len(cron_run) == 1:
+                self._json_or_key_error(lambda: cron.run_detail(cron_run[0]), extra_headers)
+                return
+
+            if parsed.path == "/api/cron/state":
+                job = (query.get("job") or [""])[0]
+                self._json_or_error(lambda: cron.state(job), extra_headers)
+                return
+
+            if parsed.path == "/api/events/stats":
+                self._json_or_error(lambda: events.stats(), extra_headers)
+                return
+
+            self._send_static(parsed.path, extra_headers)
+
+        def do_POST(self):
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+
+            authorized, extra_headers = self._authorize(query)
+            if not authorized:
+                self._send_json({"error": "unauthorized"}, status=401)
+                return
+
+            # POST /api/inbox/<id>/ack no lleva cuerpo: se resuelve antes de leerlo.
+            if parsed.path.startswith("/api/inbox/") and parsed.path.endswith("/ack"):
+                note_id = parsed.path[len("/api/inbox/"):-len("/ack")]
+                ok = inbox.ack(note_id)
+                self._send_json({"acked": ok}, status=200 if ok else 404,
+                                extra_headers=extra_headers)
+                return
+
+            # POST /api/cron/jobs/<id>/run tampoco lleva cuerpo.
+            cron_run_now = _path_parts(parsed.path, "/api/cron/jobs/")
+            if len(cron_run_now) == 2 and cron_run_now[1] == "run":
+                self._json_or_key_error(lambda: cron.run_now(cron_run_now[0]), extra_headers)
+                return
+
+            if parsed.path not in ("/api/events", "/api/link/send", "/api/inbox/take",
+                                   "/api/cron/jobs", "/api/cron/state") \
+                    and not (len(cron_run_now) == 1 and parsed.path.startswith("/api/cron/jobs/")):
+                self.send_error(404, "Not found")
+                return
+
+            body = self._read_body()
+            if body is None:
+                return
+            try:
+                payload = json.loads(body.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError) as exc:
+                self._send_json({"error": f"json inválido: {exc}"}, status=400)
+                return
+
+            if parsed.path == "/api/link/send":
+                if not isinstance(payload, dict):
+                    self._send_json({"error": "se espera un objeto {to, content}"}, status=400)
+                    return
+                try:
+                    result = inbox.send(
+                        payload.get("to", ""), payload.get("content", ""), payload.get("job"),
+                    )
+                except ValueError as exc:
+                    self._send_json({"error": str(exc)}, status=400)
+                    return
+                # 202: la consola acepta el aviso y se encarga; la entrega ocurre cuando el
+                # agente pase a recogerlo (ver console/inbox.py).
+                self._send_json(result, status=202, extra_headers=extra_headers)
+                return
+
+            # La recogida cambia estado (marca lo entregado para poder reentregar), así que es
+            # un POST y no un GET: /api/inbox, que sí es de solo lectura, se queda en GET.
+            if parsed.path == "/api/inbox/take":
+                agent = payload.get("agent", "") if isinstance(payload, dict) else ""
+                self._json_or_error(lambda: {"notes": inbox.take(agent)}, extra_headers)
+                return
+
+            if parsed.path == "/api/cron/jobs":
+                self._json_or_value_error(lambda: cron.create_job(payload or {}),
+                                          extra_headers, status=201)
+                return
+
+            if len(cron_run_now) == 1 and parsed.path.startswith("/api/cron/jobs/"):
+                self._json_or_value_error(
+                    lambda: cron.update_job(cron_run_now[0], payload or {}), extra_headers
+                )
+                return
+
+            if parsed.path == "/api/cron/state":
+                self._json_or_value_error(lambda: (
+                    cron.set_state(payload["job"], payload["key"], payload.get("value")),
+                    {"ok": True},
+                )[1], extra_headers)
+                return
+
+            batch = payload if isinstance(payload, list) else [payload]
+            if len(batch) > MAX_EVENTS_PER_REQUEST:
+                self._send_json(
+                    {"error": f"máximo {MAX_EVENTS_PER_REQUEST} eventos por petición"},
+                    status=400,
+                )
+                return
+
+            try:
+                result = events.ingest(batch)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+                return
+            # 202: la consola confirma recepción, no procesamiento. Quien emite no debe
+            # esperar nada más que esto.
+            self._send_json(result, status=202, extra_headers=extra_headers)
+
+        def do_DELETE(self):
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+
+            authorized, extra_headers = self._authorize(query)
+            if not authorized:
+                self._send_json({"error": "unauthorized"}, status=401)
+                return
+
+            cron_job = _path_parts(parsed.path, "/api/cron/jobs/")
+            if len(cron_job) == 1:
+                self._json_or_key_error(lambda: {"deleted": cron.delete_job(cron_job[0])},
+                                        extra_headers)
+                return
+
+            if parsed.path != "/api/events":
+                self.send_error(404, "Not found")
+                return
+            try:
+                removed = events.delete(
+                    before=_int_param(query, "before"),
+                    agent=(query.get("agent") or [None])[0],
+                    type_prefix=(query.get("type") or [None])[0],
+                )
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=400)
+                return
+            self._send_json({"deleted": removed}, extra_headers=extra_headers)
+
+        def _read_body(self) -> bytes | None:
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if length <= 0:
+                self._send_json({"error": "cuerpo vacío"}, status=400)
+                return None
+            if length > MAX_BODY_BYTES:
+                self._send_json({"error": "cuerpo demasiado grande"}, status=413)
+                return None
+            return self.rfile.read(length)
+
+        def _json_or_key_error(self, build, extra_headers=()):
+            """404 cuando lo pedido no existe; el resto, como siempre."""
+            try:
+                self._send_json(build(), extra_headers=extra_headers)
+            except KeyError as exc:
+                self._send_json({"error": str(exc)}, status=404)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+
+        def _json_or_value_error(self, build, extra_headers=(), status=200):
+            """400 cuando lo que manda el cliente no es válido: es culpa suya, no del servidor."""
+            try:
+                self._send_json(build(), status=status, extra_headers=extra_headers)
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=400)
+            except KeyError as exc:
+                self._send_json({"error": str(exc)}, status=404)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+
+        def _json_or_error(self, build, extra_headers=()):
+            try:
+                self._send_json(build(), extra_headers=extra_headers)
+            except Exception as exc:  # noqa: BLE001 — la consola no debe caerse por un dato raro
+                self._send_json({"error": str(exc)}, status=500)
+
+        def _health(self) -> dict:
+            containers = [
+                {k: c[k] for k in ("name", "role", "state", "image")}
+                for c in system.containers()
+            ]
+            return {
+                "ok": True,
+                "project": system.project(),
+                "prefix": config.container_prefix,
+                "cost_dir": str(config.cost_dir),
+                "cost_dir_exists": config.cost_dir.is_dir(),
+                "scripts_dir": str(config.scripts_dir),
+                "data_dir": str(config.data_dir),
+                "docker": bool(docker),
+                "containers": containers,
+                "auth": bool(config.token),
+                "events": events.stats(),
+                "inbox": inbox.stats(),
+                "cron": cron.stats(),
+            }
 
     return Handler
 
 
-def serve(port: int = 4080, cost_dir: Path | None = None) -> int:
-    cost_dir = (cost_dir or Path.cwd() / "cost-tracking").resolve()
-    handler = _make_handler(cost_dir)
+def _int_param(query: dict, name: str):
+    raw = (query.get(name) or [None])[0]
     try:
-        httpd = ThreadingHTTPServer(("0.0.0.0", port), handler)
+        return int(raw) if raw not in (None, "") else None
+    except ValueError:
+        return None
+
+
+def _start_retention(events: EventStore, inbox: Inbox) -> None:
+    """Purga al arrancar y luego a diario. Hilo demonio: no retiene el cierre del proceso.
+
+    Los avisos caducados se miran cada hora y no una vez al día: su TTL se cuenta en horas.
+    """
+    def loop():
+        ticks = 0
+        while True:
+            try:
+                if ticks % 24 == 0:
+                    removed = events.purge()
+                    if removed:
+                        print(f"[console] retención: {removed} eventos borrados "
+                              f"(> {events.retention_days} días)")
+                expired = inbox.purge()
+                if expired:
+                    print(f"[console] {expired} aviso(s) caducados sin entregar")
+            except Exception as exc:  # noqa: BLE001 — la purga no puede tumbar el servidor
+                print(f"[console] aviso: falló la purga: {exc}")
+            ticks += 1
+            time.sleep(3600)
+
+    threading.Thread(target=loop, daemon=True, name="retention").start()
+
+
+def serve(config: Config) -> int:
+    docker = None
+    if config.docker_socket:
+        candidate = DockerAPI(config.docker_socket)
+        docker = candidate if candidate.available() else None
+
+    config.data_dir.mkdir(parents=True, exist_ok=True)
+    db = Database(config.data_dir / "console.db")
+    events = EventStore(db, retention_days=config.event_retention_days)
+    inbox = Inbox(db, events, ttl_hours=config.inbox_ttl_hours)
+    _start_retention(events, inbox)
+    system = SystemInfo(docker, config.container_prefix)
+    cron = CronManager(db, events, inbox, config)
+    cron.start()
+    tmux = TmuxView(docker, system)
+
+    handler = _make_handler(config, docker, events, system, inbox, cron, tmux)
+    try:
+        httpd = ThreadingHTTPServer(("0.0.0.0", config.port), handler)
     except OSError as exc:
-        print(f"[console] no se pudo abrir el puerto {port}: {exc}")
+        print(f"[console] no se pudo abrir el puerto {config.port}: {exc}")
         return 1
 
-    print(f"[console] datos de coste:  {cost_dir}")
-    if not cost_dir.is_dir():
-        print(f"[console] aviso: {cost_dir} no existe todavía (dashboard vacío).")
-    print(f"[console] dashboard en:    http://localhost:{port}/  (Ctrl-C para parar)")
+    print(f"[console] datos de coste:  {config.cost_dir}")
+    print(f"[console] base de datos:    {db.path} ({events.count()} eventos, "
+          f"retención {config.event_retention_days} días)")
+    pending = inbox.stats()["pending"]
+    if pending:
+        print(f"[console] avisos pendientes de entregar: {pending}")
+    cron_stats = cron.stats()
+    print(f"[console] cron:            {cron_stats['scripts']} script(s) en "
+          f"{config.scripts_dir}, {cron_stats['enabled']}/{cron_stats['jobs']} "
+          "programaciones activas")
+    if not config.cost_dir.is_dir():
+        print(f"[console] aviso: {config.cost_dir} no existe todavía (dashboard vacío).")
+    if config.docker_socket:
+        if docker:
+            names = [c["name"] for c in system.containers()]
+            print(f"[console] docker:          ok, {len(names)} contenedores del proyecto "
+                  f"'{system.project() or config.container_prefix}'")
+            if len(names) <= 1:
+                others = system.other_projects()
+                if others:
+                    detalle = ", ".join(f"{p} ({n})" for p, n in others.items())
+                    print("[console] aviso: no veo más contenedores de este proyecto. En este "
+                          f"daemon hay otros: {detalle}. ¿Se levantó el equipo desde otro "
+                          "docker-compose o con otro .env?")
+        else:
+            print(f"[console] aviso: {config.docker_socket} no responde; la información de "
+                  "contenedores no estará disponible.")
+    if config.publishes_beyond_loopback() and not config.token:
+        print(f"[console] AVISO: el puerto se publica en {config.bind} y la consola NO pide "
+              "autenticación: cualquiera que alcance ese puerto entra. Define CONSOLE_TOKEN "
+              "en .env para exigir un token.")
+    print(f"[console] escuchando en:   http://0.0.0.0:{config.port}/  (Ctrl-C para parar)")
+
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\n[console] parado.")
     finally:
+        cron.stop()
         httpd.server_close()
+        db.close()
     return 0
+
+
+def serve_local(port: int, cost_dir: Path) -> int:
+    """Punto de entrada de `setup.py --console-local`: solo costes, sin Docker."""
+    return serve(Config.local(port, cost_dir.resolve()))

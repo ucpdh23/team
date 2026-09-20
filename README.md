@@ -50,6 +50,10 @@ session, `pi-link`, and a broker script that gives the 5 of them a shared mesh w
 sharing a network). All 5 also share one explicit Docker network (`team-net`), and `devops`
 can start further sibling containers on it (Docker-outside-of-Docker) — e.g. a database
 `backend` needs during development, reachable by its container name on that same network.
+
+A sixth container, [`console`](#the-console), sits on that same network but is not an agent:
+it runs no `pi`, takes no part in the mesh, and only observes — cost, who is talking to whom,
+container state, the agents' tmux panes — plus it schedules the team's own scripts.
 Full technical detail — the topology diagram, how the hub-election/broker mechanism works,
 the DooD setup, how a role ships several language variants of its image, and how the `java`
 backend's headless Eclipse (`jdtbridge`) is wired up — lives in
@@ -63,6 +67,8 @@ backend's headless Eclipse (`jdtbridge`) is wired up — lives in
 - [`docs/introduction.md`](docs/introduction.md) — a human-oriented introduction to the
   team, written for someone joining the project (what this is, who's on the team, how to
   work with it).
+- [`console/sdk/README.md`](console/sdk/README.md) — the API the console offers to the
+  scripts you schedule in it (`notify`, `state`, `ado.query`, `log`), with a worked example.
 - [`docs/work-procedures.md`](docs/work-procedures.md) — the detailed workflow: the eight
   stages a piece of work moves through, each role's objectives, and exactly what changes in
   Azure DevOps and in each role's own `workitems/` folder along the way.
@@ -91,10 +97,20 @@ backend's headless Eclipse (`jdtbridge`) is wired up — lives in
 │   ├── Dockerfile.frontend.nextjs  # frontend, nextjs variant: create-next-app, no browser
 │   ├── Dockerfile.devops       # devops image: adds Docker CLI (Docker-outside-of-Docker, see ARCHITECTURE.md)
 │   ├── Dockerfile.cypress      # variant on top of cypress/included (TODO: pin version)
+│   ├── Dockerfile.console      # console image: python + az CLI (see "The console" below)
 │   ├── entrypoint.sh           # installs pi packages, starts broker + tmux session, watchdogs
 │   ├── pi-link-broker.sh       # hub election (flock) + socat relays (see ARCHITECTURE.md)
 │   └── generate-tmux-conf.sh   # generates /etc/tmux.conf at build time (colors + extended-keys)
+├── console/                     # the console's own code (standard library only)
+│   ├── server.py  costs.py  events.py  inbox.py  cron.py  system.py  tmux.py  ...
+│   ├── sdk/                     # console_sdk: the API the cron's scripts use (see its README)
+│   ├── static/                  # the web itself: one page, five views
+│   └── tests/                   # browser test of the console (reuses the cypress image)
 ├── agents/
+│   ├── _shared/
+│   │   └── pi/extensions/
+│   │       └── team-console/   # one extension for the 5 roles: reports who talks to whom and
+│   │                            # picks up the console's scheduled notices
 │   └── <role>/
 │       ├── AGENTS.md           # team context, mounted at ~/.pi/agent/AGENTS.md (global for pi)
 │       │                        # backend/frontend have one per stack instead:
@@ -104,6 +120,9 @@ backend's headless Eclipse (`jdtbridge`) is wired up — lives in
 │           └── extensions/     # mounted at ~/.pi/agent/extensions in the container — global
 │                                # pi extensions specific to this role (see "Plugins/packages
 │                                # per agent" below)
+└── tmp/                         # not versioned (see .gitignore)
+    └── scripts/                 # the cron's scripts: yours, not this project's — the folder
+                                 # is kept in the checkout, its contents are not
 ```
 
 There's no `workspace/` folder in this repo: `/workspace` inside each container is a named Docker
@@ -128,6 +147,32 @@ python setup.py --init      # interactively builds .env from .env.example (Enter
 python setup.py --start     # docker compose up -d --build
 python setup.py --git-clone # git clone each role's REPO_URL into its /workspace, if set
 ```
+
+### Updating without losing what's inside a container
+
+A container is recreated when the hash of its service definition changes, or when its image
+does — not merely because you ran `--start`. That matters because **only volumes survive a
+recreation**: `/workspace`, `~/.pi/agent`, `backend`'s Eclipse workspace and `cost-tracking/`
+are volumes and persist, but anything installed by hand inside a container is not. An Eclipse
+plugin added from the Marketplace, for instance, lands in `/opt/eclipse`, which lives in the
+image layer and is gone the next time that container is recreated.
+
+Two options keep an update from touching more than it has to:
+
+```bash
+python setup.py --update console            # only this service; the rest of the team is left alone
+python setup.py --update backend console    # several at once
+python setup.py --start --no-build          # bring everything up without rebuilding images
+```
+
+`--no-build` also works with `--update`. Use it when you only want things running: a rebuild
+can produce a new image — and therefore a recreation — even when the code you care about did
+not change, because any file inside what the `Dockerfile` copies invalidates that layer.
+
+If a customization matters, the durable answer is to put it in the image (`docker/Dockerfile.<role>`)
+or in a volume, rather than installing it inside a running container. `docker compose up -d
+--no-recreate` is the escape hatch when you need to start something *right now* without
+touching an existing container.
 
 ## Configuration (`.env`)
 
@@ -416,6 +461,113 @@ that live only in this repo and aren't published anywhere. `pi-link` and `pi-cos
 not per-role choices; the rest of
 each role's plugins/skills are managed independently via `PI_PACKAGES`.
 
+## The console
+
+A web console for the team, on **http://localhost:4070**. It's the sixth service in
+`docker-compose.yml`, so `python setup.py --start` brings it up with everything else — there's
+nothing separate to launch.
+
+```bash
+python setup.py --console            # opens this cluster's console in the browser
+python setup.py --logs console       # its logs, like any other container
+```
+
+It is **not** an agent: no `pi`, no tmux session, no repository of its own, and it does not
+register on the pi-link mesh. It observes, and it schedules scripts.
+
+### The five tabs
+
+| Tab | What it's for |
+|---|---|
+| **Sistema** | What exists and what's alive: containers with uptime, CPU/memory, image and ports; what's attached to `team-net` (including the siblings `devops` starts); disk usage per volume; and each agent's live state — idle, thinking, running a tool, context consumed — read from the pi-link hub's own `GET /status`, which needs no registration. |
+| **Actividad** | Who talks to whom. Each message lights the edge between two agents and fades over ~10 s, a dot travels from sender to recipient, and the list below shows one line per message with how long delivery took. |
+| **Costes** | The LLM cost dashboard: total and per agent, over time, by model. Same data as [LLM cost tracking](#llm-cost-tracking) below, read from `cost-tracking/`. |
+| **Cron** | Schedules the team's scripts (below), with history, full output of each run, "run now", and the notices still waiting to be delivered to an agent. |
+| **Tmux** | The five agents' panes side by side, read-only, refreshed every 5 s. Click to enlarge; the `attach` button copies the command to open a real terminal on that agent. |
+
+### What it records, and what it deliberately doesn't
+
+Each agent carries one extra pi extension (`agents/_shared/pi/extensions/team-console`,
+mounted into all five) that reports every message the agent sends or receives over pi-link.
+What's stored is **only metadata** — sender, recipient, timestamp, size. Never the text:
+fragments of the projects the agents work on travel over that mesh, and none of it belongs in
+an observability database. The console enforces that at the boundary, dropping any field that
+looks like it carries text, so a future emitter cannot smuggle a conversation in by accident.
+
+If the console is down the agents do not notice: the extension queues events with a bounded
+buffer, a short timeout and backoff, and delivers them when it comes back.
+
+### Scheduled scripts (Cron tab)
+
+The scripts are **yours, not this project's** — they live in `tmp/scripts/`, which is not
+versioned, and are mounted read-only into the console. The web schedules what's in that
+catalog; there is no free-form command field, which is what keeps a console without
+authentication from meaning arbitrary execution for anyone who reaches the port.
+
+They're Python, and they get an API to talk to the team — `notify()`, `state`, `ado.query()`,
+`log()` — documented with a full example in [`console/sdk/README.md`](console/sdk/README.md).
+The case that motivated it: at 20:00 on weekdays, query ADO for the manager's open tickets and
+tell it about them. The manager receives it as a message and starts a turn even if it was
+idle, because delivery goes through the same mechanism pi-link uses — the console leaves the
+notice in a queue and that agent's extension injects it.
+
+Schedules are evaluated in the **container's** timezone (`TZ`, `Europe/Madrid` by default);
+the times you see in the page are drawn in your browser's. The Cron tab states which one it's
+scheduling in.
+
+### Configuration
+
+Only `CONSOLE_ADO_PAT` is asked by `python setup.py --init` (it's a secret). The rest have
+defaults in `docker-compose.yml` and are only needed if you want to change them — add them to
+your `.env`:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CONSOLE_PORT` | `4070` | Host port. Give each cluster its own if you run several `docker compose` of team on one machine. |
+| `CONSOLE_BIND` | `127.0.0.1` | Host interface. Same criterion as `BACKEND_VNC_BIND`; see the warning below before opening it up. |
+| `CONSOLE_TOKEN` | *(empty)* | Empty means no authentication. With a value, it's required on every request (`X-Console-Token` header, cookie, or `?token=` once from the browser). |
+| `CONSOLE_SCRIPTS_DIR` | `./tmp/scripts` | Where the cron's scripts are. |
+| `CONSOLE_EVENT_RETENTION_DAYS` | `30` | How long message metadata is kept (~80 bytes each). |
+| `CONSOLE_INBOX_TTL_HOURS` | `24` | How long an undelivered notice waits for its agent. |
+| `CONSOLE_AZ_CLI` | `true` | `false` builds the image without az CLI (830 MB → 222 MB); only the scripts that query ADO need it. |
+| `TZ` | `Europe/Madrid` | Timezone the cron thinks in. |
+
+### Publishing it, and several clusters on one machine
+
+By default the port is published on `127.0.0.1` only, so the console is reachable from the
+machine running Docker and nowhere else. To reach it from elsewhere, either set
+`CONSOLE_BIND=0.0.0.0` in `.env`, or forward it on demand without recreating anything:
+
+```bash
+python setup.py --console-publish 0.0.0.0:8080   # temporary forwarder container
+python setup.py --console-unpublish
+```
+
+With **several clusters of team on the same machine**, give each one its own `CONSOLE_PORT`
+(4070, 4071, …) alongside its `CONTAINER_PREFIX`; otherwise the second `docker compose up`
+fails because the port is taken. `python setup.py --console` asks Compose where *this*
+cluster's console is published, so it always opens the right one.
+
+> **Security, stated plainly.** The console mounts the host's Docker socket — that's what
+> makes the container inventory, the network, the disk usage and the tmux panes possible — and
+> that is root-level control of the host, the same trade-off already accepted for `devops`
+> (see [`ARCHITECTURE.md`](ARCHITECTURE.md)). The difference is that here there's a web in
+> front. That's why the port is on loopback by default, why the cron can only run scripts you
+> placed in the catalog, and why publishing it elsewhere without setting `CONSOLE_TOKEN`
+> prints a warning at startup.
+
+### Without Docker
+
+`python setup.py --console-local [PORT]` runs only the cost view on the host, reading a
+`cost-tracking/` folder from disk (`--cost-dir` to point it at an export from another run).
+Everything else — containers, events, cron, tmux — lives in the container.
+
+### Checking it still works
+
+`console/tests/` holds a browser test that drives the real console and fails on any uncaught
+page error. It reuses the `cypress` image, adds no dependency, and seeds and cleans up its own
+data, so it can run against a working team — see [`console/tests/README.md`](console/tests/README.md).
+
 ## LLM cost tracking
 
 All 5 agents install [`@ctogg/pi-cost-counter`](https://pi.dev/packages/@ctogg/pi-cost-counter),
@@ -424,7 +576,8 @@ directory is bind-mounted per role to `cost-tracking/<role>/` in this repo (inst
 Docker volume) specifically so it's browsable from the host without `docker exec`: open
 `cost-tracking/` to see every role's cost data side by side, or `cost-tracking/<role>/` for
 just one. Its contents change on every run and aren't meant to be versioned — see
-`.gitignore`.
+`.gitignore`. The **Costes** tab of [the console](#the-console) is the same data, aggregated
+and drawn.
 
 ## Team context (`AGENTS.md`)
 
@@ -483,6 +636,41 @@ docker exec pi-<role> tmux capture-pane -t pi -p        # pi-link's on-screen st
 (the last two are quick one-off commands, not worth a dedicated `setup.py` flag — or run
 `python setup.py --bash <role>` and type them directly inside the container.)
 
+**The console's Sistema tab shows only the console itself** — it lists the containers of its
+own Compose project (label `com.docker.compose.project`) plus any whose name starts with
+`CONTAINER_PREFIX`. If your agents were created from a *different checkout* — another
+directory is another Compose project — or before you changed `CONTAINER_PREFIX`, they fall
+outside both. The tab says so, naming its own project and the other ones it can see on the
+same daemon. Compare:
+
+```bash
+docker ps --format '{{.Names}}\t{{.Label "com.docker.compose.project"}}'
+curl -s localhost:4070/api/health          # fields: project, prefix, containers
+```
+
+The fix is usually to work from a single checkout: bring the branch there and run
+`python setup.py --start`, which creates all six containers in the same project.
+
+**`ports are not available: ... bind: address already in use` on 4070** — something else is
+already publishing that port, most often a console from *another* checkout of this project
+(with Docker Desktop + WSL2 the daemon and `localhost` are shared). Find it and either stop it
+or give this cluster its own port:
+
+```bash
+docker ps --format '{{.Names}}\t{{.Ports}}' | grep 4070
+echo "CONSOLE_PORT=4071" >> .env && python setup.py --start
+```
+
+**The console is up but the graph in Actividad stays empty** — the agents report what they
+send through the extension mounted at `agents/_shared/pi/extensions/team-console`, which only
+exists in containers created *after* that mount was added. Recreate them
+(`python setup.py --start`) and check that one of them sees it:
+
+```bash
+docker exec pi-manager ls /root/.pi/agent/extensions/team-console
+docker exec pi-manager printenv CONSOLE_URL
+```
+
 ## TODO
 
 - **More stacks** — `go` for the backend, another framework for the frontend, following [the
@@ -491,6 +679,12 @@ docker exec pi-<role> tmux capture-pane -t pi -p        # pi-link's on-screen st
   backend stack is confirmed.
 - **`cypress/included` version** — `Dockerfile.cypress` uses `latest` as a placeholder; pin
   it to the project's actual Cypress version.
+- **Interactive tmux in the console** — the mosaic is read-only on purpose; a real terminal in
+  the browser (WebSocket + pty, implemented in the console alone) is the next step if looking
+  turns out not to be enough.
+- **Console authentication** — `CONSOLE_TOKEN` exists but is opt-in, and the port is on
+  loopback by default. If the console starts being published on shared networks routinely, it
+  should be required rather than offered.
 
 ## License
 

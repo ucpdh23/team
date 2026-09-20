@@ -21,6 +21,10 @@ services:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=npm:pi-schedule-prompt
       - PI_LINK_SELF=manager
+      # Adónde manda la extensión team-console sus eventos (quién habla con quién,
+      # nunca el texto). `console` es el alias de servicio, estable con cualquier
+      # CONTAINER_PREFIX. Vacío = este agente no emite nada.
+      - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
       - REPO_URL=${MANAGER_REPO_URL:-}
       - GIT_TOKEN=${MANAGER_GIT_TOKEN:-}
       - ADO_PAT=${MANAGER_ADO_PAT:-}
@@ -36,6 +40,12 @@ services:
       - manager-pi-home:/root/.pi/agent
       - ./agents/manager/AGENTS.md:/root/.pi/agent/AGENTS.md
       - ./agents/manager/pi/extensions:/root/.pi/agent/extensions
+      # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
+      # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
+      # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
+      # descubre porque busca también en extensions/<dir>/index.ts. En solo lectura:
+      # el agente no tiene por qué poder modificarla.
+      - ./agents/_shared/pi/extensions/team-console:/root/.pi/agent/extensions/team-console:ro
       - ./cost-tracking/manager:/root/.pi/cost-tracker
 
   # El lenguaje del backend se elige con BACKEND_STACK en .env (`python setup.py --init` lo
@@ -57,6 +67,10 @@ services:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=backend
+      # Adónde manda la extensión team-console sus eventos (quién habla con quién,
+      # nunca el texto). `console` es el alias de servicio, estable con cualquier
+      # CONTAINER_PREFIX. Vacío = este agente no emite nada.
+      - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
       - BACKEND_STACK=${BACKEND_STACK:-java}
       - REPO_URL=${BACKEND_REPO_URL:-}
       - GIT_TOKEN=${BACKEND_GIT_TOKEN:-}
@@ -87,6 +101,12 @@ services:
       # variantes.
       - ./agents/backend/AGENTS.${BACKEND_STACK:-java}.md:/root/.pi/agent/AGENTS.md
       - ./agents/backend/pi/extensions:/root/.pi/agent/extensions
+      # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
+      # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
+      # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
+      # descubre porque busca también en extensions/<dir>/index.ts. En solo lectura:
+      # el agente no tiene por qué poder modificarla.
+      - ./agents/_shared/pi/extensions/team-console:/root/.pi/agent/extensions/team-console:ro
       - ./cost-tracking/backend:/root/.pi/cost-tracker
       # Índice/workspace de Eclipse, solo usado por la variante `java`; en las demás es un
       # directorio vacío más, mismo criterio que el mapeo del puerto VNC de arriba.
@@ -107,6 +127,10 @@ services:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=frontend
+      # Adónde manda la extensión team-console sus eventos (quién habla con quién,
+      # nunca el texto). `console` es el alias de servicio, estable con cualquier
+      # CONTAINER_PREFIX. Vacío = este agente no emite nada.
+      - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
       - FRONTEND_STACK=${FRONTEND_STACK:-angular}
       # El agente lo lee para arrancar su servidor de desarrollo en el puerto que este
       # servicio publica de verdad, en vez de dar por bueno el default de su framework
@@ -139,6 +163,12 @@ services:
       - frontend-pi-home:/root/.pi/agent
       - ./agents/frontend/AGENTS.${FRONTEND_STACK:-angular}.md:/root/.pi/agent/AGENTS.md
       - ./agents/frontend/pi/extensions:/root/.pi/agent/extensions
+      # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
+      # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
+      # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
+      # descubre porque busca también en extensions/<dir>/index.ts. En solo lectura:
+      # el agente no tiene por qué poder modificarla.
+      - ./agents/_shared/pi/extensions/team-console:/root/.pi/agent/extensions/team-console:ro
       - ./cost-tracking/frontend:/root/.pi/cost-tracker
 
   devops:
@@ -151,6 +181,10 @@ services:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=devops
+      # Adónde manda la extensión team-console sus eventos (quién habla con quién,
+      # nunca el texto). `console` es el alias de servicio, estable con cualquier
+      # CONTAINER_PREFIX. Vacío = este agente no emite nada.
+      - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
       - REPO_URL=${DEVOPS_REPO_URL:-}
       - GIT_TOKEN=${DEVOPS_GIT_TOKEN:-}
       - ADO_PAT=${DEVOPS_ADO_PAT:-}
@@ -173,6 +207,12 @@ services:
       - devops-pi-home:/root/.pi/agent
       - ./agents/devops/AGENTS.md:/root/.pi/agent/AGENTS.md
       - ./agents/devops/pi/extensions:/root/.pi/agent/extensions
+      # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
+      # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
+      # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
+      # descubre porque busca también en extensions/<dir>/index.ts. En solo lectura:
+      # el agente no tiene por qué poder modificarla.
+      - ./agents/_shared/pi/extensions/team-console:/root/.pi/agent/extensions/team-console:ro
       - ./cost-tracking/devops:/root/.pi/cost-tracker
       # Docker-outside-of-Docker: monta el socket del Docker del *host* en vez de correr un
       # dockerd anidado dentro de este contenedor (evita `privileged: true` y sus riesgos).
@@ -191,6 +231,10 @@ services:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=cypress
+      # Adónde manda la extensión team-console sus eventos (quién habla con quién,
+      # nunca el texto). `console` es el alias de servicio, estable con cualquier
+      # CONTAINER_PREFIX. Vacío = este agente no emite nada.
+      - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
       - REPO_URL=${CYPRESS_REPO_URL:-}
       - GIT_TOKEN=${CYPRESS_GIT_TOKEN:-}
       - ADO_PAT=${CYPRESS_ADO_PAT:-}
@@ -206,7 +250,79 @@ services:
       - cypress-pi-home:/root/.pi/agent
       - ./agents/cypress/AGENTS.md:/root/.pi/agent/AGENTS.md
       - ./agents/cypress/pi/extensions:/root/.pi/agent/extensions
+      # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
+      # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
+      # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
+      # descubre porque busca también en extensions/<dir>/index.ts. En solo lectura:
+      # el agente no tiene por qué poder modificarla.
+      - ./agents/_shared/pi/extensions/team-console:/root/.pi/agent/extensions/team-console:ro
       - ./cost-tracking/cypress:/root/.pi/cost-tracker
+
+  # La consola NO es un agente: no corre `pi`, no tiene sesión tmux, no lleva broker y no
+  # participa en la malla pi-link (ni siquiera se registra en ella — ver ARCHITECTURE.md).
+  # Observa al equipo desde fuera: lee los costes que los 5 agentes escriben en cost-tracking/,
+  # pregunta al daemon de Docker por el estado de los contenedores, y más adelante recogerá
+  # eventos de los agentes y programará tareas. Se publica en el host por CONSOLE_PORT
+  # (127.0.0.1 por defecto, mismo criterio que el VNC de backend y el dev server de frontend).
+  console:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.console
+      args:
+        # false se salta la instalación de az CLI (~500 MB), que hoy solo necesitan los
+        # scripts del cron. Ver docker/Dockerfile.console.
+        CONSOLE_AZ_CLI: ${CONSOLE_AZ_CLI:-true}
+    image: team-pi-console
+    container_name: ${CONTAINER_PREFIX:-pi}-console
+    environment:
+      - CONSOLE_COST_DIR=/data/cost-tracking
+      - CONSOLE_DATA_DIR=/data/console
+      - CONSOLE_SCRIPTS_DIR=/data/scripts
+      # El contenedor solo ve su 0.0.0.0 interno: recibe CONSOLE_BIND para poder avisar de que
+      # queda accesible sin autenticación desde fuera de esta máquina.
+      - CONSOLE_BIND=${CONSOLE_BIND:-127.0.0.1}
+      # Días que se conserva el metadato de los mensajes entre agentes (~80 bytes cada uno,
+      # así que subirlo no es caro).
+      - CONSOLE_EVENT_RETENTION_DAYS=${CONSOLE_EVENT_RETENTION_DAYS:-30}
+      # Horas que un aviso programado espera a su agente antes de caducar (ver console/inbox.py):
+      # entregar "revisa los tickets de hoy" tres días tarde es ruido, no información.
+      - CONSOLE_INBOX_TTL_HOURS=${CONSOLE_INBOX_TTL_HOURS:-24}
+      # Vacío = sin autenticación. Si se define, se exige en toda petición (cabecera
+      # X-Console-Token, cookie, o ?token= una vez desde el navegador).
+      - CONSOLE_TOKEN=${CONSOLE_TOKEN:-}
+      # Para distinguir los contenedores de ESTE cluster de los de otro compose en el mismo
+      # host: los nombres llevan este prefijo (ver container_name arriba).
+      - CONTAINER_PREFIX=${CONTAINER_PREFIX:-pi}
+      - TEAM_NETWORK_NAME=${CONTAINER_PREFIX:-pi}-net
+      # Un cron "a las 20:00" tiene que ser las 20:00 de aquí, no UTC.
+      - TZ=${TZ:-Europe/Madrid}
+      - ADO_ORGANIZATION_URL
+      - ADO_PROJECT
+      # PAT propio de la consola (para los scripts del cron), revocable por separado del de
+      # cada agente. Mismo nombre de variable dentro del contenedor que en los agentes.
+      - ADO_PAT=${CONSOLE_ADO_PAT:-}
+    ports:
+      - "${CONSOLE_BIND:-127.0.0.1}:${CONSOLE_PORT:-4070}:4070"
+    networks:
+      - team-net
+    volumes:
+      # Solo lectura: los agentes escriben aquí vía /root/.pi/cost-tracker, la consola solo lee.
+      - ./cost-tracking:/data/cost-tracking:ro
+      # Scripts del cron. No se versionan en este repositorio (son del equipo de desarrollo,
+      # con su propio ciclo de vida): viven en tmp/scripts/, que .gitignore deja fuera
+      # conservando solo el directorio. CONSOLE_SCRIPTS_DIR permite moverlos a otro sitio.
+      - ${CONSOLE_SCRIPTS_DIR:-./tmp/scripts}:/data/scripts:ro
+      # Estado propio de la consola (base de datos y logs): sobrevive a `--stop`, igual que
+      # los volúmenes *-pi-home de los agentes.
+      - console-data:/data/console
+      # hub.addr dice qué contenedor ejerce de hub de pi-link ahora mismo. Solo lectura: la
+      # consola lo consulta, nunca compite por el rol.
+      - pi-link-coord:/var/run/pi-link:ro
+      # Docker-outside-of-Docker, como devops: es lo que permite enseñar el inventario de
+      # contenedores, la red y el espacio, y leer las sesiones tmux. Implica control root del
+      # host desde este contenedor — ver ARCHITECTURE.md antes de publicar el puerto fuera de
+      # loopback.
+      - /var/run/docker.sock:/var/run/docker.sock
 
 # El nombre de referencia de cada volumen (la clave YAML) es fijo y es lo que usan los
 # servicios de arriba para citarlo; el nombre real del volumen en Docker (`name:`) sí usa
@@ -243,3 +359,5 @@ volumes:
     name: cypress-${CONTAINER_PREFIX:-pi}-home
   cypress-workspace:
     name: cypress-${CONTAINER_PREFIX:-pi}-workspace
+  console-data:
+    name: console-${CONTAINER_PREFIX:-pi}-data

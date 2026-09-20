@@ -3,60 +3,25 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>team-pi · consumo de agentes</title>
+  <title>team-pi · consola</title>
   <link rel="stylesheet" href="/style.css" />
   <!-- Chart.js desde CDN: mantiene el servidor sin dependencias. Requiere red en el navegador. -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <header>
-    <h1>team-pi <span>· consumo de agentes</span></h1>
-    <div class="controls">
-      <div class="segmented" id="range">
-        <button data-range="day" class="active">Último día</button>
-        <button data-range="week">Última semana</button>
-      </div>
-      <div class="daterange">
-        <input type="date" id="from" title="Desde" />
-        <span class="sep">→</span>
-        <input type="date" id="to" title="Hasta" />
-        <button id="apply" class="ghost" title="Aplicar rango de fechas">Aplicar</button>
-      </div>
-      <button id="refresh" class="ghost" title="Recargar datos">↻</button>
-    </div>
+    <h1>team-pi <span id="cluster">· consola</span></h1>
+    <nav id="tabs">
+      <a href="#/sistema" data-view="sistema">Sistema</a>
+      <a href="#/actividad" data-view="actividad">Actividad</a>
+      <a href="#/costes" data-view="costes">Costes</a>
+      <a href="#/cron" data-view="cron">Cron</a>
+      <a href="#/tmux" data-view="tmux">Tmux</a>
+    </nav>
   </header>
 
-  <p class="meta" id="meta">Cargando…</p>
+  <main id="view"></main>
 
-  <section class="cards" id="cards"></section>
-
-  <section class="panel">
-    <h2>Evolución en el tiempo <small id="evo-sub"></small></h2>
-    <div class="chart-wrap"><canvas id="evolution"></canvas></div>
-  </section>
-
-  <section class="grid">
-    <div class="panel">
-      <h2>Reparto del coste por agente</h2>
-      <div class="chart-wrap"><canvas id="share"></canvas></div>
-    </div>
-    <div class="panel">
-      <h2>Tokens por agente</h2>
-      <div class="chart-wrap"><canvas id="tokens"></canvas></div>
-    </div>
-  </section>
-
-  <section class="grid">
-    <div class="panel">
-      <h2>Coste por modelo y agente <small>· apilado por modelo</small></h2>
-      <div class="chart-wrap"><canvas id="modelCost"></canvas></div>
-    </div>
-    <div class="panel">
-      <h2>Interacciones por modelo y agente <small>· nº de llamadas</small></h2>
-      <div class="chart-wrap"><canvas id="modelCalls"></canvas></div>
-    </div>
-  </section>
-
-  <script src="/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -131,3 +131,208 @@ h1 span { color: var(--muted); font-weight: 400; }
   padding: 40px 0;
   font-size: 14px;
 }
+
+/* ─── Pestañas ─────────────────────────────────────────────────────────────── */
+
+nav#tabs { display: flex; gap: 4px; }
+nav#tabs a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  border: 1px solid transparent;
+}
+nav#tabs a:hover { color: var(--text); background: var(--panel); }
+nav#tabs a.active {
+  color: var(--text);
+  background: var(--panel);
+  border-color: var(--border);
+  font-weight: 600;
+}
+
+/* Cabecera propia de cada vista: el texto de estado a la izquierda, sus controles a la
+   derecha. Antes esto vivía en el <header> de la página, que ahora es solo la navegación. */
+.view-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 12px 0 4px;
+}
+.view-head .meta { margin: 0; }
+.meta.error { color: #ff7a90; }
+.meta.sep { margin-top: 14px; }
+
+/* ─── Tablas (Sistema) ─────────────────────────────────────────────────────── */
+
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.table td { padding: 8px 10px; border-bottom: 1px solid #1b1f29; vertical-align: middle; }
+.table tr:last-child td { border-bottom: 0; }
+.table tr.down td { opacity: 0.55; }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.table .dim, .dim { color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.state { font-weight: 600; }
+.state.up { color: #5ad19a; }
+.state.down { color: #ff7a90; }
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text);
+}
+.pill.thinking { border-color: #6ea8fe; color: #6ea8fe; }
+.pill.tool { border-color: #f7b955; color: #f7b955; }
+.pill.off { color: var(--muted); }
+
+.tag {
+  margin-left: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0 5px;
+}
+
+ul.plain { list-style: none; margin: 6px 0 0; padding: 0; font-size: 13px; }
+ul.plain li { padding: 3px 0; }
+ul.plain .mono { display: inline-block; min-width: 92px; color: var(--muted); }
+
+/* ─── Grafo de actividad ───────────────────────────────────────────────────── */
+
+.graph-grid { grid-template-columns: 1.4fr 1fr; }
+.graph-wrap { width: 100%; }
+#graph { width: 100%; height: auto; display: block; }
+
+.edge-base { fill: none; stroke: #2d3344; }
+/* La arista encendida se dibuja aparte del trazo base: el brillo cambia en cada fotograma y
+   el grosor base solo al recargar el grafo. */
+.edge-glow { fill: none; stroke-linecap: round; filter: drop-shadow(0 0 4px currentColor); }
+
+.node { fill: var(--panel-2); stroke-width: 2; }
+.node.offline { stroke-dasharray: 4 3; opacity: 0.5; }
+.node.thinking { fill: #232a3a; }
+.node-ring { fill: none; stroke-width: 3; }
+.node-label { fill: var(--text); font-size: 13px; font-weight: 600; }
+.node-status { fill: var(--muted); font-size: 11px; }
+
+ul.events { list-style: none; margin: 0; padding: 0; font-size: 13px; max-height: 420px; overflow-y: auto; }
+ul.events li {
+  padding: 6px 4px;
+  border-bottom: 1px solid #1b1f29;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+ul.events li.failed { color: #ff7a90; }
+ul.events .arrow { color: var(--muted); }
+ul.events .mono { min-width: 70px; }
+
+@media (max-width: 900px) {
+  .graph-grid { grid-template-columns: 1fr; }
+}
+
+.tag.bad { color: #ff7a90; border-color: #ff7a90; }
+/* En la lista de mensajes la etiqueta lleva un tiempo ("✓ 900 ms"), no una palabra clave:
+   en versales quedaría gritando. */
+ul.events li .tag { margin-left: auto; text-transform: none; }
+
+/* ─── Cron ─────────────────────────────────────────────────────────────────── */
+
+.ghost.small { padding: 2px 8px; font-size: 12px; }
+
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-items: end; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.form input, .form select {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.form #f-error { grid-column: 1 / -1; color: #ff7a90; }
+
+/* La salida de una ejecución se enseña tal cual la escribió el script: sin reformatear, con
+   sus saltos de línea y con scroll propio. */
+.run-output {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  background: #0b0d13;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  max-height: 260px;
+  overflow: auto;
+}
+
+/* ─── Mosaico de tmux ──────────────────────────────────────────────────────── */
+
+/* align-items: start evita que una celda de un agente parado se estire hasta la altura del
+   panel del que sí está vivo, que es lo que hace el grid por defecto. */
+.tmux-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+  align-items: start;
+  gap: 14px;
+}
+
+.tmux-cell {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px 12px;
+  cursor: zoom-in;
+}
+/* Un agente parado no necesita ocupar lo mismo que uno vivo: basta con que se note que falta. */
+.tmux-cell.down { opacity: 0.55; cursor: default; padding-bottom: 10px; }
+.tmux-cell.down .tmux-scale { font-size: 12px; }
+.tmux-cell-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
+.tmux-cell-head .dim { flex: 1; font-size: 12px; }
+
+/* El panel se dibuja a tamaño real (220 columnas) y se encoge con transform, así que
+   conserva su composición en vez de romperse en líneas que no existen. */
+.tmux-scale { overflow: hidden; }
+.tmux-pane {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: pre;
+  color: #c8cdd8;
+  transform-origin: top left;
+}
+.tmux-pane.full { transform: none; font-size: 12px; overflow: auto; max-height: 72vh; }
+
+.modal {
+  position: fixed;
+  inset: 24px;
+  z-index: 20;
+  background: #0b0d13;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  overflow: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.modal-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.modal-head .dim { flex: 1; font-size: 12px; }

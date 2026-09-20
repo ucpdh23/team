@@ -20,8 +20,18 @@ ENV_BACKUP = ROOT / ".env.bak"
 
 TRUTHY_ANSWERS = {"s", "si", "sí", "y", "yes"}
 ROLES = ("manager", "backend", "frontend", "devops", "cypress")
+# La consola no es un rol: no corre `pi`, no tiene sesión tmux ni repositorio propio. Solo
+# aparece donde tiene sentido para cualquier contenedor del compose (--logs, --bash).
+SERVICES = ROLES + ("console",)
 
-CONSOLE_DEFAULT_PORT = 4080
+# Puerto de la consola DENTRO de su contenedor (fijo; lo que se publica en el host lo decide
+# CONSOLE_PORT en .env — ver docker-compose.yml).
+CONSOLE_CONTAINER_PORT = 4070
+CONSOLE_DEFAULT_PORT = 4070
+# El servidor local de --console-local usa otro puerto a propósito, para poder inspeccionar un
+# export mientras el contenedor de la consola está levantado sin chocar con él.
+CONSOLE_LOCAL_DEFAULT_PORT = 4080
+CONSOLE_IMAGE = "team-pi-console"
 COST_TRACKING_DIR = ROOT / "cost-tracking"
 
 DOCKER_DIR = ROOT / "docker"
@@ -198,12 +208,50 @@ def run_docker(*args) -> int:
     return result.returncode
 
 
+def run_docker_quiet(*args) -> int:
+    """Como run_docker pero sin anunciar el comando ni dejar salir su error.
+
+    Para pasos de limpieza donde 'no existía' no es un problema que haya que contar (p. ej.
+    borrar un contenedor de reenvío que puede no estar).
+    """
+    try:
+        return subprocess.run(["docker", *args], cwd=ROOT, capture_output=True).returncode
+    except FileNotFoundError:
+        return 1
+
+
 def run_compose(*compose_args) -> int:
     return run_docker("compose", *compose_args)
 
 
+def compose_up(services=(), build=True) -> int:
+    """`docker compose up -d` sobre todo el equipo o sobre los servicios indicados.
+
+    Compose no recrea un contenedor porque se ejecute esto, sino cuando cambia el hash de la
+    definición de su servicio — o cuando su imagen es otra. De ahí las dos opciones de abajo:
+    `--no-build` evita que una reconstrucción genere una imagen nueva (y con ella una
+    recreación) cuando lo único que se quiere es levantar lo que ya existe, y `--update`
+    limita la operación a los servicios que de verdad han cambiado, dejando al resto intactos.
+
+    Importa porque lo que vive dentro de un contenedor y no en un volumen —por ejemplo un
+    plugin instalado a mano en el Eclipse de `backend`, que está en /opt/eclipse y no en el
+    volumen del workspace— desaparece en cuanto ese contenedor se recrea.
+    """
+    args = ["up", "-d"]
+    if build:
+        args.append("--build")
+    return run_compose(*args, *services)
+
+
 def cmd_start(args) -> int:
-    return run_compose("up", "-d", "--build")
+    return compose_up(build=not args.no_build)
+
+
+def cmd_update(args) -> int:
+    servicios = args.update
+    print(f"[setup] actualizando solo: {', '.join(servicios)} "
+          f"(el resto del equipo no se toca)")
+    return compose_up(servicios, build=not args.no_build)
 
 
 def cmd_stop(args) -> int:
@@ -327,11 +375,150 @@ def cmd_git_clone(args) -> int:
     return exit_code
 
 
-def cmd_console(args) -> int:
-    """Levanta el dashboard web de consumo (paquete console/, solo librería estándar).
+def compose_prefix() -> str:
+    """CONTAINER_PREFIX de este cluster (el mismo default que docker-compose.yml)."""
+    return read_env_file().get("CONTAINER_PREFIX", "").strip() or "pi"
 
-    Import diferido: solo se carga console.server cuando de verdad se pide --console, para no
-    penalizar el resto de comandos ni exigir la carpeta console/ para usarlos.
+
+def console_forwarder_name() -> str:
+    return f"{compose_prefix()}-console-fwd"
+
+
+def container_exists(name: str) -> bool:
+    """`docker rm -f` devuelve 0 aunque el contenedor no existiera, así que preguntamos antes
+    en vez de deducirlo del código de salida."""
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-aq", "--filter", f"name=^{name}$"],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        return False
+    return bool(result.stdout.strip())
+
+
+def published_console_address() -> str | None:
+    """Dirección `ip:puerto` en la que este compose publica la consola, según Docker.
+
+    Se lo preguntamos a Compose (`docker compose port`) en vez de recomponerlo a partir de
+    CONSOLE_BIND/CONSOLE_PORT: así lo que se imprime es lo que de verdad está publicado, no lo
+    que debería estarlo.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "port", "console", str(CONSOLE_CONTAINER_PORT)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        print(
+            "No se encuentra el comando 'docker' en el PATH. Instala Docker Desktop "
+            "(Windows/macOS) o Docker Engine + Compose plugin (Linux).",
+            file=sys.stderr,
+        )
+        return None
+    address = result.stdout.strip().splitlines()[0].strip() if result.stdout.strip() else ""
+    return address or None
+
+
+def cmd_console(args) -> int:
+    """Abre la consola de ESTE cluster, preguntando a Compose dónde está publicada."""
+    address = published_console_address()
+    if not address:
+        print(
+            "La consola no está publicada. Comprueba que el contenedor está arriba "
+            "('python setup.py --start') o publícala a mano con "
+            "'python setup.py --console-publish [IP:]PUERTO'.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 0.0.0.0 es una interfaz de escucha, no una dirección a la que navegar.
+    host, _, port = address.rpartition(":")
+    if host in ("0.0.0.0", "::", "[::]"):
+        host = "127.0.0.1"
+    url = f"http://{host}:{port}/"
+    print(f"[setup] cluster '{compose_prefix()}' → {url}")
+
+    forwarder = console_forwarder_name()
+    extra = subprocess.run(
+        ["docker", "ps", "--filter", f"name=^{forwarder}$", "--format", "{{.Ports}}"],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    if extra.stdout.strip():
+        print(f"[setup] reenvío adicional activo: {extra.stdout.strip()}")
+
+    if not args.no_browser:
+        import webbrowser
+
+        webbrowser.open(url)
+    return 0
+
+
+def cmd_console_publish(args) -> int:
+    """Publica la consola en otra interfaz/puerto del host, sin recrear el contenedor.
+
+    Levanta un contenedor de reenvío (socat) en la red del equipo. Es lo que permite, con
+    varios clusters de team en la misma máquina, exponer la consola de uno concreto en un
+    puerto libre sin tocar su .env ni reiniciar nada.
+    """
+    spec = args.console_publish
+    bind, _, port = spec.rpartition(":")
+    bind = bind or "0.0.0.0"
+    if not port.isdigit():
+        print(f"'{spec}' no es un destino válido; usa PUERTO o IP:PUERTO.", file=sys.stderr)
+        return 1
+
+    prefix = compose_prefix()
+    name = console_forwarder_name()
+    run_docker_quiet("rm", "-f", name)  # un reenvío anterior; que no exista es lo normal
+    print(f"[setup] publicando la consola de '{prefix}' en {bind}:{port}")
+    if bind not in ("127.0.0.1", "localhost", "::1"):
+        print(
+            "[setup] aviso: salvo que hayas definido CONSOLE_TOKEN, la consola no pide "
+            "autenticación y cualquiera que alcance ese puerto podrá usarla."
+        )
+    code = run_docker_quiet(
+        "run", "-d", "--name", name,
+        "--network", f"{prefix}-net",
+        "-p", f"{bind}:{port}:{CONSOLE_CONTAINER_PORT}",
+        CONSOLE_IMAGE,
+        "socat", f"TCP-LISTEN:{CONSOLE_CONTAINER_PORT},fork,reuseaddr",
+        f"TCP:console:{CONSOLE_CONTAINER_PORT}",
+    )
+    if code != 0:
+        print(
+            f"No se pudo publicar en {bind}:{port}. Suele ser que ese puerto ya está ocupado "
+            "en el host (¿otro cluster de team?) o que la consola no está levantada "
+            "('python setup.py --start').",
+            file=sys.stderr,
+        )
+        return code
+    host = "127.0.0.1" if bind in ("0.0.0.0", "::") else bind
+    print(f"[setup] disponible en http://{host}:{port}/  "
+          f"(retirar: python setup.py --console-unpublish)")
+    return 0
+
+
+def cmd_console_unpublish(args) -> int:
+    name = console_forwarder_name()
+    if not container_exists(name):
+        print(f"[setup] no hay ningún reenvío activo ({name}).")
+        return 0
+    code = run_docker_quiet("rm", "-f", name)
+    print(f"[setup] reenvío {name} retirado." if code == 0
+          else f"[setup] no se pudo retirar {name}.")
+    return code
+
+
+def cmd_console_local(args) -> int:
+    """Levanta la consola en el host, sin Docker: solo la vista de costes.
+
+    Útil para inspeccionar un export de cost-tracking de otra ejecución (--cost-dir). El resto
+    de funciones de la consola (contenedores, eventos, cron, tmux) viven en su contenedor.
+
+    Import diferido: solo se carga el paquete console cuando de verdad se pide.
     """
     if args.cost_dir:
         cost_dir = Path(args.cost_dir).expanduser().resolve()
@@ -339,11 +526,11 @@ def cmd_console(args) -> int:
         cost_dir = COST_TRACKING_DIR
 
     try:
-        from console.server import serve
+        from console.server import serve_local
     except ImportError as exc:
         print(f"No se pudo cargar el paquete 'console': {exc}", file=sys.stderr)
         return 1
-    return serve(port=args.console, cost_dir=cost_dir)
+    return serve_local(args.console_local, cost_dir)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -367,7 +554,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--start",
         action="store_true",
         help="Equivalente a 'docker compose up -d --build': construye (si hace falta) y "
-        "levanta los 5 contenedores en segundo plano.",
+        "levanta todos los contenedores en segundo plano.",
+    )
+    parser.add_argument(
+        "--update",
+        nargs="+",
+        metavar="SERVICIO",
+        choices=SERVICES,
+        help="Levanta/actualiza SOLO esos servicios, dejando el resto del equipo como está. "
+        "Útil cuando un cambio afecta a un contenedor y no quieres que los demás se "
+        "recreen (lo instalado a mano dentro de un contenedor se pierde al recrearlo). "
+        f"Servicios: {', '.join(SERVICES)}.",
+    )
+    parser.add_argument(
+        "--no-build",
+        action="store_true",
+        help="Con --start o --update, no reconstruye las imágenes. Evita que una imagen nueva "
+        "provoque recrear un contenedor cuando solo querías levantarlo.",
     )
     parser.add_argument(
         "--stop",
@@ -384,15 +587,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--logs",
-        metavar="ROLE",
-        choices=ROLES,
-        help="Sigue los logs del contenedor de ese rol (docker logs --tail 100 -f).",
+        metavar="SERVICIO",
+        choices=SERVICES,
+        help="Sigue los logs de ese contenedor (docker logs --tail 100 -f). Además de los 5 "
+        "roles admite 'console'.",
     )
     parser.add_argument(
         "--bash",
-        metavar="ROLE",
-        choices=ROLES,
-        help="Abre una shell bash interactiva dentro del contenedor de ese rol.",
+        metavar="SERVICIO",
+        choices=SERVICES,
+        help="Abre una shell interactiva dentro de ese contenedor. Además de los 5 roles "
+        "admite 'console'.",
     )
     parser.add_argument(
         "--git-clone",
@@ -403,24 +608,51 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--console",
+        action="store_true",
+        help="Abre en el navegador la consola de este cluster (contenedor `console`, puerto "
+        f"{CONSOLE_DEFAULT_PORT} por defecto), preguntando a Compose dónde está publicada.",
+    )
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Con --console, solo imprime la URL en vez de abrir el navegador.",
+    )
+    parser.add_argument(
+        "--console-publish",
+        metavar="[IP:]PUERTO",
+        help="Publica la consola de este cluster en esa interfaz/puerto del host mediante un "
+        "contenedor de reenvío, sin recrear nada. Útil con varios clusters de team en la "
+        "misma máquina, o para abrirla puntualmente a la red.",
+    )
+    parser.add_argument(
+        "--console-unpublish",
+        action="store_true",
+        help="Retira el reenvío creado por --console-publish.",
+    )
+    parser.add_argument(
+        "--console-local",
         nargs="?",
-        const=CONSOLE_DEFAULT_PORT,
+        const=CONSOLE_LOCAL_DEFAULT_PORT,
         type=int,
         metavar="PUERTO",
-        help="Levanta un dashboard web (solo librería estándar) para visualizar el consumo de "
-        f"los agentes desde cost-tracking/ — total y por agente, con evolución del último día o "
-        f"la última semana. Puerto opcional (por defecto {CONSOLE_DEFAULT_PORT}).",
+        help="Levanta solo la vista de costes en esta máquina, sin Docker, leyendo una carpeta "
+        f"cost-tracking/ del disco (por defecto ./cost-tracking, ver --cost-dir). Puerto "
+        f"opcional (por defecto {CONSOLE_LOCAL_DEFAULT_PORT}).",
     )
     parser.add_argument(
         "--cost-dir",
         metavar="DIR",
-        help="Carpeta de datos de coste a visualizar con --console (por defecto ./cost-tracking). "
-        "Útil para inspeccionar un export de otra ejecución.",
+        help="Carpeta de datos de coste a visualizar con --console-local (por defecto "
+        "./cost-tracking). Útil para inspeccionar un export de otra ejecución.",
     )
     return parser
 
 
 def main(argv=None) -> int:
+    # Los mensajes de este script se intercalan con la salida de los `docker` que lanza; sin
+    # esto, al redirigir a un fichero o a una tubería salen desordenados (los nuestros
+    # quedan en el buffer y los de docker no).
+    sys.stdout.reconfigure(line_buffering=True)
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -428,6 +660,8 @@ def main(argv=None) -> int:
         return cmd_init(args)
     if args.start:
         return cmd_start(args)
+    if args.update:
+        return cmd_update(args)
     if args.stop:
         return cmd_stop(args)
     if args.tmux:
@@ -438,8 +672,14 @@ def main(argv=None) -> int:
         return cmd_bash(args)
     if args.git_clone:
         return cmd_git_clone(args)
-    if args.console is not None:
+    if args.console:
         return cmd_console(args)
+    if args.console_publish:
+        return cmd_console_publish(args)
+    if args.console_unpublish:
+        return cmd_console_unpublish(args)
+    if args.console_local is not None:
+        return cmd_console_local(args)
 
     parser.print_help()
     return 0
