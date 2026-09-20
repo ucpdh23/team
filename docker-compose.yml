@@ -208,6 +208,66 @@ services:
       - ./agents/cypress/pi/extensions:/root/.pi/agent/extensions
       - ./cost-tracking/cypress:/root/.pi/cost-tracker
 
+  # La consola NO es un agente: no corre `pi`, no tiene sesión tmux, no lleva broker y no
+  # participa en la malla pi-link (ni siquiera se registra en ella — ver ARCHITECTURE.md).
+  # Observa al equipo desde fuera: lee los costes que los 5 agentes escriben en cost-tracking/,
+  # pregunta al daemon de Docker por el estado de los contenedores, y más adelante recogerá
+  # eventos de los agentes y programará tareas. Se publica en el host por CONSOLE_PORT
+  # (127.0.0.1 por defecto, mismo criterio que el VNC de backend y el dev server de frontend).
+  console:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.console
+      args:
+        # false se salta la instalación de az CLI (~500 MB), que hoy solo necesitan los
+        # scripts del cron. Ver docker/Dockerfile.console.
+        CONSOLE_AZ_CLI: ${CONSOLE_AZ_CLI:-true}
+    image: team-pi-console
+    container_name: ${CONTAINER_PREFIX:-pi}-console
+    environment:
+      - CONSOLE_COST_DIR=/data/cost-tracking
+      - CONSOLE_DATA_DIR=/data/console
+      - CONSOLE_SCRIPTS_DIR=/data/scripts
+      # El contenedor solo ve su 0.0.0.0 interno: recibe CONSOLE_BIND para poder avisar de que
+      # queda accesible sin autenticación desde fuera de esta máquina.
+      - CONSOLE_BIND=${CONSOLE_BIND:-127.0.0.1}
+      # Vacío = sin autenticación. Si se define, se exige en toda petición (cabecera
+      # X-Console-Token, cookie, o ?token= una vez desde el navegador).
+      - CONSOLE_TOKEN=${CONSOLE_TOKEN:-}
+      # Para distinguir los contenedores de ESTE cluster de los de otro compose en el mismo
+      # host: los nombres llevan este prefijo (ver container_name arriba).
+      - CONTAINER_PREFIX=${CONTAINER_PREFIX:-pi}
+      - TEAM_NETWORK_NAME=${CONTAINER_PREFIX:-pi}-net
+      # Un cron "a las 20:00" tiene que ser las 20:00 de aquí, no UTC.
+      - TZ=${TZ:-Europe/Madrid}
+      - ADO_ORGANIZATION_URL
+      - ADO_PROJECT
+      # PAT propio de la consola (para los scripts del cron), revocable por separado del de
+      # cada agente. Mismo nombre de variable dentro del contenedor que en los agentes.
+      - ADO_PAT=${CONSOLE_ADO_PAT:-}
+    ports:
+      - "${CONSOLE_BIND:-127.0.0.1}:${CONSOLE_PORT:-4070}:4070"
+    networks:
+      - team-net
+    volumes:
+      # Solo lectura: los agentes escriben aquí vía /root/.pi/cost-tracker, la consola solo lee.
+      - ./cost-tracking:/data/cost-tracking:ro
+      # Scripts del cron. No se versionan en este repositorio (son del equipo de desarrollo,
+      # con su propio ciclo de vida): viven en tmp/scripts/, que .gitignore deja fuera
+      # conservando solo el directorio. CONSOLE_SCRIPTS_DIR permite moverlos a otro sitio.
+      - ${CONSOLE_SCRIPTS_DIR:-./tmp/scripts}:/data/scripts:ro
+      # Estado propio de la consola (base de datos y logs): sobrevive a `--stop`, igual que
+      # los volúmenes *-pi-home de los agentes.
+      - console-data:/data/console
+      # hub.addr dice qué contenedor ejerce de hub de pi-link ahora mismo. Solo lectura: la
+      # consola lo consulta, nunca compite por el rol.
+      - pi-link-coord:/var/run/pi-link:ro
+      # Docker-outside-of-Docker, como devops: es lo que permite enseñar el inventario de
+      # contenedores, la red y el espacio, y leer las sesiones tmux. Implica control root del
+      # host desde este contenedor — ver ARCHITECTURE.md antes de publicar el puerto fuera de
+      # loopback.
+      - /var/run/docker.sock:/var/run/docker.sock
+
 # El nombre de referencia de cada volumen (la clave YAML) es fijo y es lo que usan los
 # servicios de arriba para citarlo; el nombre real del volumen en Docker (`name:`) sí usa
 # CONTAINER_PREFIX, con el mismo criterio que container_name. Compose no permite
@@ -243,3 +303,5 @@ volumes:
     name: cypress-${CONTAINER_PREFIX:-pi}-home
   cypress-workspace:
     name: cypress-${CONTAINER_PREFIX:-pi}-workspace
+  console-data:
+    name: console-${CONTAINER_PREFIX:-pi}-data

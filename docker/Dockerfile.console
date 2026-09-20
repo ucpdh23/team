@@ -1,0 +1,49 @@
+# Consola del equipo: la sexta pieza del compose. No corre `pi` ni participa en la malla
+# pi-link — observa (costes, eventos, contenedores) y programa tareas. Ver README y
+# ARCHITECTURE.md.
+# bookworm explícito, no el `slim` a secas: `python:3.12-slim` ya apunta a Debian 13 (trixie)
+# y Microsoft todavía no publica repositorio de azure-cli para esa versión (el `apt-get update`
+# del bloque de az CLI de abajo falla con "does not have a Release file"). Bookworm es además
+# la misma generación de Debian que usan las imágenes de los agentes (node:24-bookworm-slim).
+FROM python:3.12-slim-bookworm
+
+# Mismo criterio que docker/Dockerfile.pi: sin esto los bytes multibyte UTF-8 (tildes, ñ) se
+# estropean en los ficheros de coste y en la salida de los scripts del cron.
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# curl/jq/git son para los scripts del cron, no para el servidor: el paquete `console/` es solo
+# librería estándar y así sigue. socat solo se usa cuando esta misma imagen se reutiliza como
+# contenedor de reenvío (`setup.py --console-publish`), no dentro de la consola. No se instala
+# el cliente `docker`: la API del daemon se habla por HTTP sobre su socket unix desde
+# `console/docker_api.py` (ver ARCHITECTURE.md).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl jq git socat \
+  && rm -rf /var/lib/apt/lists/*
+
+# az CLI + extensión azure-devops, el mismo bloque que docker/Dockerfile.pi. Está aquí porque
+# los scripts del cron consultan ADO con la misma sintaxis que ya usan los agentes (ver
+# docs/work-procedures.md). Pesa ~500 MB: mientras no haya cron, construir con
+# `--build-arg CONSOLE_AZ_CLI=false` (o CONSOLE_AZ_CLI=false en .env) se lo salta entero.
+ARG CONSOLE_AZ_CLI=true
+RUN if [ "$CONSOLE_AZ_CLI" = "true" ]; then \
+      apt-get update \
+      && apt-get install -y --no-install-recommends gnupg \
+      && mkdir -p /etc/apt/keyrings \
+      && curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg \
+      && chmod go+r /etc/apt/keyrings/microsoft.gpg \
+      && . /etc/os-release \
+      && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/azure-cli.list \
+      && apt-get update \
+      && apt-get install -y --no-install-recommends azure-cli \
+      && az extension add --name azure-devops \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+COPY console/ /app/console/
+
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1
+EXPOSE 4070
+
+CMD ["python", "-m", "console"]
