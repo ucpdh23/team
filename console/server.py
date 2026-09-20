@@ -301,9 +301,14 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 self._send_json({"error": str(exc)}, status=500)
 
         def _health(self) -> dict:
-            containers = docker.team_containers(config.container_prefix) if docker else []
+            containers = [
+                {k: c[k] for k in ("name", "role", "state", "image")}
+                for c in system.containers()
+            ]
             return {
                 "ok": True,
+                "project": system.project(),
+                "prefix": config.container_prefix,
                 "cost_dir": str(config.cost_dir),
                 "cost_dir_exists": config.cost_dir.is_dir(),
                 "scripts_dir": str(config.scripts_dir),
@@ -381,9 +386,16 @@ def serve(config: Config) -> int:
         print(f"[console] aviso: {config.cost_dir} no existe todavía (dashboard vacío).")
     if config.docker_socket:
         if docker:
-            names = [c["name"] for c in docker.team_containers(config.container_prefix)]
-            print(f"[console] docker:          ok, {len(names)} contenedores del cluster "
-                  f"'{config.container_prefix}'")
+            names = [c["name"] for c in system.containers()]
+            print(f"[console] docker:          ok, {len(names)} contenedores del proyecto "
+                  f"'{system.project() or config.container_prefix}'")
+            if len(names) <= 1:
+                others = system.other_projects()
+                if others:
+                    detalle = ", ".join(f"{p} ({n})" for p, n in others.items())
+                    print("[console] aviso: no veo más contenedores de este proyecto. En este "
+                          f"daemon hay otros: {detalle}. ¿Se levantó el equipo desde otro "
+                          "docker-compose o con otro .env?")
         else:
             print(f"[console] aviso: {config.docker_socket} no responde; la información de "
                   "contenedores no estará disponible.")

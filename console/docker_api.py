@@ -62,25 +62,3 @@ class DockerAPI:
 
     def containers(self) -> list[dict]:
         return self.get("/containers/json?all=1") or []
-
-    def team_containers(self, prefix: str) -> list[dict]:
-        """Contenedores de *este* cluster, resumidos.
-
-        Se filtran por el prefijo de nombre (CONTAINER_PREFIX) en vez de por la etiqueta de
-        proyecto de Compose: el prefijo es lo que ya distingue un cluster de otro en este
-        repositorio, y no obliga a saber con qué nombre de proyecto se levantó.
-        """
-        out = []
-        for container in self.containers():
-            names = [n.lstrip("/") for n in container.get("Names") or []]
-            name = names[0] if names else ""
-            if not name.startswith(f"{prefix}-"):
-                continue
-            out.append({
-                "name": name,
-                "role": name[len(prefix) + 1:],
-                "image": container.get("Image", ""),
-                "state": container.get("State", ""),
-                "status": container.get("Status", ""),
-            })
-        return sorted(out, key=lambda c: c["name"])

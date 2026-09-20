@@ -139,7 +139,21 @@ function renderContainers(data, stats) {
     </tr>`;
   });
 
-  root.querySelector("#containers").innerHTML = data.containers.length
+  // El caso "aquí solo estoy yo" tiene casi siempre una explicación concreta, y decirla
+  // ahorra el rato de buscarla: el equipo se levantó desde otro compose o con otro .env.
+  const others = data.other_projects || {};
+  const otherText = Object.entries(others).map(([p, n]) => `${p} (${n})`).join(", ");
+  const warning = data.containers.length <= 1
+    ? `<p class="meta">La consola pertenece al proyecto <code>${data.project || "(sin etiqueta)"}</code>
+        y no ve ningún otro contenedor suyo.` +
+      (otherText
+        ? ` En este Docker sí hay contenedores de otros proyectos: <code>${otherText}</code>.
+            Si tu equipo está ahí, se levantó desde otro docker-compose (u otro checkout) que
+            el de esta consola.`
+        : " ¿Está levantado el equipo (<code>python setup.py --start</code>)?") + "</p>"
+    : "";
+
+  root.querySelector("#containers").innerHTML = warning + (data.containers.length
     ? `<table class="table">
          <thead><tr>
            <th>agente</th><th>contenedor</th><th>agente pi</th>
@@ -148,8 +162,7 @@ function renderContainers(data, stats) {
          </tr></thead>
          <tbody>${rows.join("")}</tbody>
        </table>`
-    : `<p class="meta">No se ve ningún contenedor del cluster. ¿Está levantado
-       (<code>python setup.py --start</code>)?</p>`;
+    : "");
 }
 
 function renderNetwork(network) {

@@ -18,8 +18,10 @@ contenedor desaparece a mitad de la consulta, se devuelve lo que se tenga y un m
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import time
+import urllib.parse
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -85,6 +87,7 @@ class SystemInfo:
         self.docker = docker
         self.prefix = container_prefix
         self.hub_addr_file = Path(hub_addr_file)
+        self._project = _Cached(60.0)
         self._containers = _Cached(TTL_CONTAINERS)
         self._stats = _Cached(TTL_STATS)
         self._disk = _Cached(TTL_DISK)
@@ -92,24 +95,71 @@ class SystemInfo:
 
     # ------------------------------------------------------------- contenedores
 
+    def project(self) -> str | None:
+        """Proyecto de Compose al que pertenece esta consola, según su propia etiqueta.
+
+        Compose etiqueta cada contenedor que crea con `com.docker.compose.project`, y la
+        consola se inspecciona a sí misma (su hostname es su id) para leerla.
+        """
+        return self._project.get(self._build_project)
+
+    def _build_project(self) -> str | None:
+        if not self.docker:
+            return None
+        detail = self.docker.get(f"/containers/{socket.gethostname()}/json")
+        labels = ((detail or {}).get("Config") or {}).get("Labels") or {}
+        return labels.get("com.docker.compose.project")
+
+    def _by_project(self, project: str) -> list[dict]:
+        query = urllib.parse.quote(json.dumps({"label": [f"com.docker.compose.project={project}"]}))
+        return self.docker.get(f"/containers/json?all=1&filters={query}") or []
+
     def containers(self) -> list[dict]:
         return self._containers.get(self._build_containers)
+
+    def _list_raw(self) -> list[dict]:
+        """Los contenedores del equipo, por los DOS criterios a la vez.
+
+        - El proyecto de Compose de la propia consola (etiqueta `com.docker.compose.project`).
+        - El prefijo de nombre (`CONTAINER_PREFIX`), que es el criterio original.
+
+        Se unen en vez de elegir uno porque cada uno falla en un caso distinto: si el equipo se
+        levantó desde otro directorio (otro proyecto de Compose) solo lo encuentra el prefijo,
+        y si alguien cambió CONTAINER_PREFIX después de crear los contenedores solo lo
+        encuentra el proyecto. Ver un contenedor de más que casualmente comparta prefijo es
+        barato; no ver a tus agentes, no.
+        """
+        found: dict[str, dict] = {}
+        project = self.project()
+        if project:
+            for container in self._by_project(project):
+                found[container["Id"]] = container
+        for container in self.docker.containers():
+            names = [n.lstrip("/") for n in container.get("Names") or []]
+            if any(n.startswith(f"{self.prefix}-") for n in names):
+                found[container["Id"]] = container
+        # Los contenedores de `docker compose run` son de usar y tirar: no forman parte del
+        # equipo aunque lleven la etiqueta del proyecto.
+        return [c for c in found.values()
+                if (c.get("Labels") or {}).get("com.docker.compose.oneoff") != "True"]
 
     def _build_containers(self) -> list[dict]:
         if not self.docker:
             return []
         out = []
-        for container in self.docker.containers():
+        for container in self._list_raw():
             names = [n.lstrip("/") for n in container.get("Names") or []]
             name = names[0] if names else ""
-            if not name.startswith(f"{self.prefix}-"):
-                continue
+            labels = container.get("Labels") or {}
             detail = self.docker.get(f"/containers/{container['Id']}/json") or {}
             state = detail.get("State") or {}
             out.append({
                 "id": container["Id"][:12],
+                # El rol es el nombre del servicio en el compose, no un trozo del nombre del
+                # contenedor: es lo que de verdad dice qué pieza del equipo es esta.
                 "name": name,
-                "role": name[len(self.prefix) + 1:],
+                "role": labels.get("com.docker.compose.service")
+                        or (name[len(self.prefix) + 1:] if name.startswith(f"{self.prefix}-") else name),
                 "image": container.get("Image", ""),
                 "state": container.get("State", ""),
                 "status": container.get("Status", ""),
@@ -275,15 +325,39 @@ class SystemInfo:
 
     # ------------------------------------------------------------------ resumen
 
+    def other_projects(self) -> dict[str, int]:
+        """Contenedores de OTROS proyectos de Compose visibles en este daemon.
+
+        Solo se usa cuando la consola no encuentra a nadie de su equipo: si ahí aparece un
+        proyecto con cinco contenedores, la respuesta a "¿por qué no veo a mis agentes?" está
+        justo delante (se levantaron desde otro sitio, no desde este compose).
+        """
+        if not self.docker:
+            return {}
+        mine = self.project()
+        counts: dict[str, int] = {}
+        for container in self.docker.containers():
+            project = (container.get("Labels") or {}).get("com.docker.compose.project")
+            if project and project != mine:
+                counts[project] = counts.get(project, 0) + 1
+        return counts
+
     def snapshot(self) -> dict:
         """Lo que pinta la pestaña Sistema de un tirón (sin stats ni disco, que van aparte)."""
-        return {
+        containers = self.containers()
+        data = {
             "prefix": self.prefix,
+            "project": self.project(),
             "docker": bool(self.docker),
-            "containers": self.containers(),
+            "containers": containers,
             "network": self.network(),
             "link": self.link(),
         }
+        # Un solo contenedor (la propia consola) casi siempre significa que el resto del equipo
+        # se levantó con otra configuración, no que no exista.
+        if len(containers) <= 1:
+            data["other_projects"] = self.other_projects()
+        return data
 
 
 def _summarize_stats(raw) -> dict | None:

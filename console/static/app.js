@@ -49,8 +49,7 @@ render();
 fetch("/api/health")
   .then((r) => r.json())
   .then((h) => {
-    const containers = h.containers || [];
-    const prefix = containers.length ? containers[0].name.split("-")[0] : null;
-    if (prefix) document.getElementById("cluster").textContent = `· consola · cluster ${prefix}`;
+    const name = h.project || h.prefix;
+    if (name) document.getElementById("cluster").textContent = `· consola · ${name}`;
   })
   .catch(() => {});
