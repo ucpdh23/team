@@ -8,6 +8,8 @@ este fichero siga siendo solo transporte: rutas, JSON, ficheros y autenticación
 from __future__ import annotations
 
 import json
+import threading
+import time
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -15,9 +17,15 @@ from urllib.parse import parse_qs, urlparse
 
 from . import costs
 from .config import Config
+from .db import Database
 from .docker_api import DockerAPI
+from .events import MAX_EVENTS_PER_REQUEST, EventStore
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+# Tope del cuerpo de un POST. La ingesta manda lotes de metadatos (un evento ocupa ~80 bytes),
+# así que 1 MiB es holgado y evita que una petición mal formada se coma la memoria.
+MAX_BODY_BYTES = 1 << 20
 
 TOKEN_COOKIE = "console_token"
 TOKEN_HEADER = "X-Console-Token"
@@ -31,7 +39,7 @@ _CONTENT_TYPES = {
 }
 
 
-def _make_handler(config: Config, docker: DockerAPI | None):
+def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore):
     class Handler(BaseHTTPRequestHandler):
         # Silencia el log por defecto (una línea por request) para no ensuciar la salida del
         # contenedor, que es donde se ven los avisos que sí importan.
@@ -125,7 +133,87 @@ def _make_handler(config: Config, docker: DockerAPI | None):
                 self._json_or_error(lambda: self._health(), extra_headers)
                 return
 
+            if parsed.path == "/api/events":
+                self._json_or_error(lambda: {
+                    "events": events.query(
+                        since=_int_param(query, "since"),
+                        until=_int_param(query, "until"),
+                        agent=(query.get("agent") or [None])[0],
+                        type_prefix=(query.get("type") or [None])[0],
+                        limit=_int_param(query, "limit") or 200,
+                    ),
+                }, extra_headers)
+                return
+
+            if parsed.path == "/api/events/pulse":
+                self._json_or_error(
+                    lambda: events.pulse(since=_int_param(query, "since")), extra_headers
+                )
+                return
+
+            if parsed.path == "/api/events/graph":
+                self._json_or_error(lambda: events.graph(
+                    window_ms=_int_param(query, "window_ms") or 3_600_000,
+                ), extra_headers)
+                return
+
+            if parsed.path == "/api/events/stats":
+                self._json_or_error(lambda: events.stats(), extra_headers)
+                return
+
             self._send_static(parsed.path, extra_headers)
+
+        def do_POST(self):
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+
+            authorized, extra_headers = self._authorize(query)
+            if not authorized:
+                self._send_json({"error": "unauthorized"}, status=401)
+                return
+
+            if parsed.path != "/api/events":
+                self.send_error(404, "Not found")
+                return
+
+            body = self._read_body()
+            if body is None:
+                return
+            try:
+                payload = json.loads(body.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError) as exc:
+                self._send_json({"error": f"json inválido: {exc}"}, status=400)
+                return
+
+            batch = payload if isinstance(payload, list) else [payload]
+            if len(batch) > MAX_EVENTS_PER_REQUEST:
+                self._send_json(
+                    {"error": f"máximo {MAX_EVENTS_PER_REQUEST} eventos por petición"},
+                    status=400,
+                )
+                return
+
+            try:
+                result = events.ingest(batch)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+                return
+            # 202: la consola confirma recepción, no procesamiento. Quien emite no debe
+            # esperar nada más que esto.
+            self._send_json(result, status=202, extra_headers=extra_headers)
+
+        def _read_body(self) -> bytes | None:
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if length <= 0:
+                self._send_json({"error": "cuerpo vacío"}, status=400)
+                return None
+            if length > MAX_BODY_BYTES:
+                self._send_json({"error": "cuerpo demasiado grande"}, status=413)
+                return None
+            return self.rfile.read(length)
 
         def _json_or_error(self, build, extra_headers=()):
             try:
@@ -144,9 +232,34 @@ def _make_handler(config: Config, docker: DockerAPI | None):
                 "docker": bool(docker),
                 "containers": containers,
                 "auth": bool(config.token),
+                "events": events.stats(),
             }
 
     return Handler
+
+
+def _int_param(query: dict, name: str):
+    raw = (query.get(name) or [None])[0]
+    try:
+        return int(raw) if raw not in (None, "") else None
+    except ValueError:
+        return None
+
+
+def _start_retention(events: EventStore) -> None:
+    """Purga al arrancar y una vez al día. Un hilo demonio: no retiene el cierre del proceso."""
+    def loop():
+        while True:
+            try:
+                removed = events.purge()
+                if removed:
+                    print(f"[console] retención: {removed} eventos borrados "
+                          f"(> {events.retention_days} días)")
+            except Exception as exc:  # noqa: BLE001 — la purga no puede tumbar el servidor
+                print(f"[console] aviso: falló la purga de eventos: {exc}")
+            time.sleep(86_400)
+
+    threading.Thread(target=loop, daemon=True, name="retention").start()
 
 
 def serve(config: Config) -> int:
@@ -156,8 +269,11 @@ def serve(config: Config) -> int:
         docker = candidate if candidate.available() else None
 
     config.data_dir.mkdir(parents=True, exist_ok=True)
+    db = Database(config.data_dir / "console.db")
+    events = EventStore(db, retention_days=config.event_retention_days)
+    _start_retention(events)
 
-    handler = _make_handler(config, docker)
+    handler = _make_handler(config, docker, events)
     try:
         httpd = ThreadingHTTPServer(("0.0.0.0", config.port), handler)
     except OSError as exc:
@@ -165,6 +281,8 @@ def serve(config: Config) -> int:
         return 1
 
     print(f"[console] datos de coste:  {config.cost_dir}")
+    print(f"[console] base de datos:    {db.path} ({events.count()} eventos, "
+          f"retención {config.event_retention_days} días)")
     if not config.cost_dir.is_dir():
         print(f"[console] aviso: {config.cost_dir} no existe todavía (dashboard vacío).")
     if config.docker_socket:
@@ -187,6 +305,7 @@ def serve(config: Config) -> int:
         print("\n[console] parado.")
     finally:
         httpd.server_close()
+        db.close()
     return 0
 
 

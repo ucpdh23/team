@@ -21,6 +21,10 @@ services:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=npm:pi-schedule-prompt
       - PI_LINK_SELF=manager
+      # Adónde manda la extensión team-console sus eventos (quién habla con quién,
+      # nunca el texto). `console` es el alias de servicio, estable con cualquier
+      # CONTAINER_PREFIX. Vacío = este agente no emite nada.
+      - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
       - REPO_URL=${MANAGER_REPO_URL:-}
       - GIT_TOKEN=${MANAGER_GIT_TOKEN:-}
       - ADO_PAT=${MANAGER_ADO_PAT:-}
@@ -36,6 +40,12 @@ services:
       - manager-pi-home:/root/.pi/agent
       - ./agents/manager/AGENTS.md:/root/.pi/agent/AGENTS.md
       - ./agents/manager/pi/extensions:/root/.pi/agent/extensions
+      # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
+      # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
+      # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
+      # descubre porque busca también en extensions/<dir>/index.ts. En solo lectura:
+      # el agente no tiene por qué poder modificarla.
+      - ./agents/_shared/pi/extensions/team-console:/root/.pi/agent/extensions/team-console:ro
       - ./cost-tracking/manager:/root/.pi/cost-tracker
 
   # El lenguaje del backend se elige con BACKEND_STACK en .env (`python setup.py --init` lo
@@ -57,6 +67,10 @@ services:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=backend
+      # Adónde manda la extensión team-console sus eventos (quién habla con quién,
+      # nunca el texto). `console` es el alias de servicio, estable con cualquier
+      # CONTAINER_PREFIX. Vacío = este agente no emite nada.
+      - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
       - BACKEND_STACK=${BACKEND_STACK:-java}
       - REPO_URL=${BACKEND_REPO_URL:-}
       - GIT_TOKEN=${BACKEND_GIT_TOKEN:-}
@@ -87,6 +101,12 @@ services:
       # variantes.
       - ./agents/backend/AGENTS.${BACKEND_STACK:-java}.md:/root/.pi/agent/AGENTS.md
       - ./agents/backend/pi/extensions:/root/.pi/agent/extensions
+      # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
+      # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
+      # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
+      # descubre porque busca también en extensions/<dir>/index.ts. En solo lectura:
+      # el agente no tiene por qué poder modificarla.
+      - ./agents/_shared/pi/extensions/team-console:/root/.pi/agent/extensions/team-console:ro
       - ./cost-tracking/backend:/root/.pi/cost-tracker
       # Índice/workspace de Eclipse, solo usado por la variante `java`; en las demás es un
       # directorio vacío más, mismo criterio que el mapeo del puerto VNC de arriba.
@@ -107,6 +127,10 @@ services:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=frontend
+      # Adónde manda la extensión team-console sus eventos (quién habla con quién,
+      # nunca el texto). `console` es el alias de servicio, estable con cualquier
+      # CONTAINER_PREFIX. Vacío = este agente no emite nada.
+      - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
       - FRONTEND_STACK=${FRONTEND_STACK:-angular}
       # El agente lo lee para arrancar su servidor de desarrollo en el puerto que este
       # servicio publica de verdad, en vez de dar por bueno el default de su framework
@@ -139,6 +163,12 @@ services:
       - frontend-pi-home:/root/.pi/agent
       - ./agents/frontend/AGENTS.${FRONTEND_STACK:-angular}.md:/root/.pi/agent/AGENTS.md
       - ./agents/frontend/pi/extensions:/root/.pi/agent/extensions
+      # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
+      # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
+      # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
+      # descubre porque busca también en extensions/<dir>/index.ts. En solo lectura:
+      # el agente no tiene por qué poder modificarla.
+      - ./agents/_shared/pi/extensions/team-console:/root/.pi/agent/extensions/team-console:ro
       - ./cost-tracking/frontend:/root/.pi/cost-tracker
 
   devops:
@@ -151,6 +181,10 @@ services:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=devops
+      # Adónde manda la extensión team-console sus eventos (quién habla con quién,
+      # nunca el texto). `console` es el alias de servicio, estable con cualquier
+      # CONTAINER_PREFIX. Vacío = este agente no emite nada.
+      - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
       - REPO_URL=${DEVOPS_REPO_URL:-}
       - GIT_TOKEN=${DEVOPS_GIT_TOKEN:-}
       - ADO_PAT=${DEVOPS_ADO_PAT:-}
@@ -173,6 +207,12 @@ services:
       - devops-pi-home:/root/.pi/agent
       - ./agents/devops/AGENTS.md:/root/.pi/agent/AGENTS.md
       - ./agents/devops/pi/extensions:/root/.pi/agent/extensions
+      # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
+      # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
+      # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
+      # descubre porque busca también en extensions/<dir>/index.ts. En solo lectura:
+      # el agente no tiene por qué poder modificarla.
+      - ./agents/_shared/pi/extensions/team-console:/root/.pi/agent/extensions/team-console:ro
       - ./cost-tracking/devops:/root/.pi/cost-tracker
       # Docker-outside-of-Docker: monta el socket del Docker del *host* en vez de correr un
       # dockerd anidado dentro de este contenedor (evita `privileged: true` y sus riesgos).
@@ -191,6 +231,10 @@ services:
       - ANTHROPIC_API_KEY
       - PI_PACKAGES=
       - PI_LINK_SELF=cypress
+      # Adónde manda la extensión team-console sus eventos (quién habla con quién,
+      # nunca el texto). `console` es el alias de servicio, estable con cualquier
+      # CONTAINER_PREFIX. Vacío = este agente no emite nada.
+      - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
       - REPO_URL=${CYPRESS_REPO_URL:-}
       - GIT_TOKEN=${CYPRESS_GIT_TOKEN:-}
       - ADO_PAT=${CYPRESS_ADO_PAT:-}
@@ -206,6 +250,12 @@ services:
       - cypress-pi-home:/root/.pi/agent
       - ./agents/cypress/AGENTS.md:/root/.pi/agent/AGENTS.md
       - ./agents/cypress/pi/extensions:/root/.pi/agent/extensions
+      # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
+      # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
+      # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
+      # descubre porque busca también en extensions/<dir>/index.ts. En solo lectura:
+      # el agente no tiene por qué poder modificarla.
+      - ./agents/_shared/pi/extensions/team-console:/root/.pi/agent/extensions/team-console:ro
       - ./cost-tracking/cypress:/root/.pi/cost-tracker
 
   # La consola NO es un agente: no corre `pi`, no tiene sesión tmux, no lleva broker y no

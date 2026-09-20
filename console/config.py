@@ -33,6 +33,9 @@ class Config:
     bind: str = "127.0.0.1"
     #: Vacío = sin autenticación (v1). Si se define, se exige en toda petición.
     token: str = ""
+    #: Días de eventos que se conservan. Un evento son ~80 bytes (solo metadatos), así que
+    #: subirlo no es caro; 0 o menos desactiva la purga.
+    event_retention_days: int = 30
     container_prefix: str = "pi"
     docker_socket: str = "/var/run/docker.sock"
 
@@ -45,6 +48,9 @@ class Config:
             scripts_dir=_env_path("CONSOLE_SCRIPTS_DIR", "/data/scripts"),
             bind=os.environ.get("CONSOLE_BIND", "").strip() or "127.0.0.1",
             token=os.environ.get("CONSOLE_TOKEN", "").strip(),
+            event_retention_days=int(
+                os.environ.get("CONSOLE_EVENT_RETENTION_DAYS", "").strip() or 30
+            ),
             container_prefix=os.environ.get("CONTAINER_PREFIX", "").strip() or "pi",
             docker_socket=os.environ.get("DOCKER_SOCKET", "").strip() or "/var/run/docker.sock",
         )
