@@ -26,7 +26,7 @@ describe("consola team-pi", () => {
 
   it("Sistema: pinta los contenedores y el estado de la malla", () => {
     cy.visit("/");
-    cy.get("nav#tabs a").should("have.length", 4);
+    cy.get("nav#tabs a").should("have.length", 5);
     cy.get("nav#tabs a.active").should("contain", "Sistema");
     cy.get("#containers table tbody tr").should("have.length.greaterThan", 0);
     cy.contains("#sys-meta", "contenedores en marcha");
@@ -101,6 +101,24 @@ describe("consola team-pi", () => {
     cy.request("/api/cron/jobs").then((res) => {
       const job = res.body.jobs.find((j) => j.name === nombre);
       if (job) cy.request("DELETE", `/api/cron/jobs/${job.id}`);
+    });
+  });
+
+  it("Tmux: enseña el panel de los agentes en marcha", () => {
+    cy.visit("/#/tmux");
+    cy.get(".tmux-cell", { timeout: 10000 }).should("have.length.greaterThan", 0);
+    cy.request("/api/tmux/panes").then((res) => {
+      const vivos = res.body.agents.filter((a) => a.state === "running");
+      if (!vivos.length) return;   // sin agentes levantados no hay panel que mirar
+      const agente = vivos[0].agent;
+      cy.get(`[data-pane="${agente}"]`).should("not.be.empty");
+      cy.screenshot("5-tmux", { capture: "viewport" });
+      // Al ampliar, el panel se ve a tamaño real y se cierra con Esc.
+      cy.get(`.tmux-cell[data-agent="${agente}"] .tmux-scale`).click();
+      cy.get("#tmux-modal").should("be.visible");
+      cy.get("#tmux-modal-body").should("not.be.empty");
+      cy.get("body").type("{esc}");
+      cy.get("#tmux-modal").should("not.be.visible");
     });
   });
 

@@ -23,6 +23,7 @@ from .events import MAX_EVENTS_PER_REQUEST, EventStore
 from .cron import CronManager
 from .inbox import Inbox
 from .system import SystemInfo
+from .tmux import TmuxView
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -56,7 +57,7 @@ def _path_parts(path: str, prefix: str) -> list[str]:
 
 
 def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
-                  system: SystemInfo, inbox: Inbox, cron: CronManager):
+                  system: SystemInfo, inbox: Inbox, cron: CronManager, tmux: TmuxView):
     class Handler(BaseHTTPRequestHandler):
         # Silencia el log por defecto (una línea por request) para no ensuciar la salida del
         # contenedor, que es donde se ven los avisos que sí importan.
@@ -192,6 +193,19 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 self._json_or_error(lambda: {
                     "pending": inbox.pending((query.get("agent") or [None])[0]),
                 }, extra_headers)
+                return
+
+            if parsed.path == "/api/tmux/panes":
+                self._json_or_error(lambda: {"agents": tmux.agents()}, extra_headers)
+                return
+
+            tmux_pane = _path_parts(parsed.path, "/api/tmux/panes/")
+            if len(tmux_pane) == 1:
+                self._json_or_error(lambda: tmux.pane(
+                    tmux_pane[0],
+                    lines=_int_param(query, "lines") or 60,
+                    colors=(query.get("colors") or ["1"])[0] != "0",
+                ), extra_headers)
                 return
 
             if parsed.path == "/api/cron/scripts":
@@ -467,8 +481,9 @@ def serve(config: Config) -> int:
     system = SystemInfo(docker, config.container_prefix)
     cron = CronManager(db, events, inbox, config)
     cron.start()
+    tmux = TmuxView(docker, system)
 
-    handler = _make_handler(config, docker, events, system, inbox, cron)
+    handler = _make_handler(config, docker, events, system, inbox, cron, tmux)
     try:
         httpd = ThreadingHTTPServer(("0.0.0.0", config.port), handler)
     except OSError as exc:

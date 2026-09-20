@@ -10,6 +10,7 @@ const VIEWS = {
   actividad: () => import("/views/actividad.js"),
   costes: () => import("/views/costes.js"),
   cron: () => import("/views/cron.js"),
+  tmux: () => import("/views/tmux.js"),
 };
 const DEFAULT_VIEW = "sistema";
 

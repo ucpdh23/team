@@ -284,3 +284,55 @@ ul.events li .tag { margin-left: auto; text-transform: none; }
   max-height: 260px;
   overflow: auto;
 }
+
+/* ─── Mosaico de tmux ──────────────────────────────────────────────────────── */
+
+/* align-items: start evita que una celda de un agente parado se estire hasta la altura del
+   panel del que sí está vivo, que es lo que hace el grid por defecto. */
+.tmux-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+  align-items: start;
+  gap: 14px;
+}
+
+.tmux-cell {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px 12px;
+  cursor: zoom-in;
+}
+/* Un agente parado no necesita ocupar lo mismo que uno vivo: basta con que se note que falta. */
+.tmux-cell.down { opacity: 0.55; cursor: default; padding-bottom: 10px; }
+.tmux-cell.down .tmux-scale { font-size: 12px; }
+.tmux-cell-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
+.tmux-cell-head .dim { flex: 1; font-size: 12px; }
+
+/* El panel se dibuja a tamaño real (220 columnas) y se encoge con transform, así que
+   conserva su composición en vez de romperse en líneas que no existen. */
+.tmux-scale { overflow: hidden; }
+.tmux-pane {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: pre;
+  color: #c8cdd8;
+  transform-origin: top left;
+}
+.tmux-pane.full { transform: none; font-size: 12px; overflow: auto; max-height: 72vh; }
+
+.modal {
+  position: fixed;
+  inset: 24px;
+  z-index: 20;
+  background: #0b0d13;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  overflow: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.modal-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.modal-head .dim { flex: 1; font-size: 12px; }
