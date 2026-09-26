@@ -65,7 +65,8 @@ everything else, whose whole job is to make the team legible from the outside.
   who, to whom, when and how long it was.
 - **What it's costing**, per agent and over time.
 - **The five sessions side by side**, read-only, refreshed every few seconds — the mosaic
-  version of attaching to one agent's terminal.
+  version of attaching to one agent's terminal. Click one and, if the console has a token set,
+  you can also type into it from the browser (there's a red border and a badge while you do).
 - **Scheduled jobs.** Scripts your team writes (they are not part of this project) can run on
   a schedule inside the console and *talk to the agents*: the case it was built for is
   querying Azure DevOps at eight in the evening and telling `manager` which tickets are still

@@ -52,8 +52,10 @@ can start further sibling containers on it (Docker-outside-of-Docker) — e.g. a
 `backend` needs during development, reachable by its container name on that same network.
 
 A sixth container, [`console`](#the-console), sits on that same network but is not an agent:
-it runs no `pi`, takes no part in the mesh, and only observes — cost, who is talking to whom,
-container state, the agents' tmux panes — plus it schedules the team's own scripts.
+it runs no `pi`, takes no part in the mesh, and observes — cost, who is talking to whom,
+container state, the agents' tmux panes — plus it schedules the team's own scripts. The one
+thing it does beyond looking is [typing into an agent's terminal](#typing-into-an-agent-tmux-tab),
+which you open on purpose and which needs a `CONSOLE_TOKEN`.
 Full technical detail — the topology diagram, how the hub-election/broker mechanism works,
 the DooD setup, how a role ships several language variants of its image, and how the `java`
 backend's headless Eclipse (`jdtbridge`) is wired up — lives in
@@ -102,7 +104,7 @@ backend's headless Eclipse (`jdtbridge`) is wired up — lives in
 │   ├── pi-link-broker.sh       # hub election (flock) + socat relays (see ARCHITECTURE.md)
 │   └── generate-tmux-conf.sh   # generates /etc/tmux.conf at build time (colors + extended-keys)
 ├── console/                     # the console's own code (standard library only)
-│   ├── server.py  costs.py  events.py  inbox.py  cron.py  system.py  tmux.py  ...
+│   ├── server.py  costs.py  events.py  inbox.py  cron.py  system.py  tmux.py  terminal.py  websocket.py  ...
 │   ├── sdk/                     # console_sdk: the API the cron's scripts use (see its README)
 │   ├── static/                  # the web itself: one page, five views
 │   └── tests/                   # browser test of the console (reuses the cypress image)
@@ -473,7 +475,8 @@ python setup.py --logs console       # its logs, like any other container
 ```
 
 It is **not** an agent: no `pi`, no tmux session, no repository of its own, and it does not
-register on the pi-link mesh. It observes, and it schedules scripts.
+register on the pi-link mesh. It observes, it schedules scripts, and — only with a
+`CONSOLE_TOKEN`, and only when you ask — it opens a real terminal into one agent.
 
 ### The five tabs
 
@@ -483,7 +486,50 @@ register on the pi-link mesh. It observes, and it schedules scripts.
 | **Actividad** | Who talks to whom. Each message lights the edge between two agents and fades over ~10 s, a dot travels from sender to recipient, and the list below shows one line per message with how long delivery took. |
 | **Costes** | The LLM cost dashboard: total and per agent, over time, by model. Same data as [LLM cost tracking](#llm-cost-tracking) below, read from `cost-tracking/`. |
 | **Cron** | Schedules the team's scripts (below), with history, full output of each run, "run now", and the notices still waiting to be delivered to an agent. |
-| **Tmux** | The five agents' panes side by side, read-only, refreshed every 5 s. Click to enlarge; the `attach` button copies the command to open a real terminal on that agent. |
+| **Tmux** | The five agents' panes side by side, **read-only**, refreshed every 5 s. Click one to enlarge it; **Escribir** turns it into a real terminal you can type in (needs `CONSOLE_TOKEN`, see [below](#typing-into-an-agent-tmux-tab)). The `attach` button still copies the `docker exec` command for a terminal of your own. |
+
+### Typing into an agent (Tmux tab)
+
+The mosaic is read-only on purpose: watching five agents at once is cheap, typing into five at
+once is not. To act on one, click it and press **Escribir**: the modal becomes a real terminal
+([xterm.js](https://xtermjs.org)) attached to that agent's `pi` session, with a red border and
+an `ESCRITURA ACTIVA` badge so you can't mistake it for the read-only view. **Solo lectura**,
+**Cerrar**, or `Ctrl-b d` bring you back.
+
+```
+browser (xterm.js) ──WebSocket──▶ console ──docker.sock, exec with TTY──▶ tmux attach -t pi
+```
+
+It is `docker exec -it <container> tmux attach -t pi`, with the browser as the terminal. The
+console copies bytes both ways without reading them, and nothing is installed in the agents'
+images. Details in [`ARCHITECTURE.md`](ARCHITECTURE.md#the-tmux-terminal).
+
+**It requires `CONSOLE_TOKEN`.** Typing into an agent means running commands in a container
+that holds its own credentials, so without a token the button is disabled and says why — even
+with the port on loopback, because a browser lets *any* web page you visit open a WebSocket to
+`127.0.0.1` (WebSockets are not subject to CORS). Set the token in `.env`, recreate the console
+(`python setup.py --update console`), and open the console **once** with
+`http://localhost:4070/?token=<your token>`: that leaves a cookie and the token is not needed
+again. On top of the token, the WebSocket only opens from the console's own origin, the
+command is fixed by the server (the browser only picks *which agent*, among the containers the
+console already lists), at most 5 terminals can be open at once, and every open/close is
+logged (`python setup.py --logs console`): which agent, from where and for how long, never
+the content.
+
+Some things behave differently from a terminal of your own:
+
+- **`Esc` and `Ctrl+C` go to the agent** (`pi` uses them), so `Esc` does not close the modal
+  while the terminal is open. `Ctrl+C` copies instead when you have a selection (and clears
+  it, so the next one interrupts). With tmux's mouse mode on, select with **Shift+drag**
+  (**Option+drag** on macOS).
+- **The size is the tmux window's, not the browser's.** The terminal opens at exactly the
+  window's size (220×50 by default) and the font shrinks to fit it, down to a minimum, then
+  scrolls. Matching it exactly is what keeps the mosaic and anyone attached from a terminal of
+  their own from seeing the window change every time you open one.
+- **If someone is attached at the same time you both type into the same session.** That is
+  how tmux works, not something the console adds.
+- xterm.js is loaded from a CDN (with an integrity hash), like Chart.js: the browser needs
+  network access the first time you press **Escribir**.
 
 ### What it records, and what it deliberately doesn't
 
@@ -525,7 +571,7 @@ your `.env`:
 |---|---|---|
 | `CONSOLE_PORT` | `4070` | Host port. Give each cluster its own if you run several `docker compose` of team on one machine. |
 | `CONSOLE_BIND` | `127.0.0.1` | Host interface. Same criterion as `BACKEND_VNC_BIND`; see the warning below before opening it up. |
-| `CONSOLE_TOKEN` | *(empty)* | Empty means no authentication. With a value, it's required on every request (`X-Console-Token` header, cookie, or `?token=` once from the browser). |
+| `CONSOLE_TOKEN` | *(empty)* | Empty means no authentication. With a value, it's required on every request (`X-Console-Token` header, cookie, or `?token=` once from the browser). **It's also what enables typing into an agent** (see [above](#typing-into-an-agent-tmux-tab)): without it that terminal is disabled. |
 | `CONSOLE_SCRIPTS_DIR` | `./tmp/scripts` | Where the cron's scripts are. |
 | `CONSOLE_EVENT_RETENTION_DAYS` | `30` | How long message metadata is kept (~80 bytes each). |
 | `CONSOLE_INBOX_TTL_HOURS` | `24` | How long an undelivered notice waits for its agent. |
@@ -549,12 +595,13 @@ fails because the port is taken. `python setup.py --console` asks Compose where 
 cluster's console is published, so it always opens the right one.
 
 > **Security, stated plainly.** The console mounts the host's Docker socket — that's what
-> makes the container inventory, the network, the disk usage and the tmux panes possible — and
+> makes the container inventory, the network, the disk usage, the tmux panes and the terminal
+> possible — and
 > that is root-level control of the host, the same trade-off already accepted for `devops`
 > (see [`ARCHITECTURE.md`](ARCHITECTURE.md)). The difference is that here there's a web in
 > front. That's why the port is on loopback by default, why the cron can only run scripts you
-> placed in the catalog, and why publishing it elsewhere without setting `CONSOLE_TOKEN`
-> prints a warning at startup.
+> placed in the catalog, why typing into an agent requires `CONSOLE_TOKEN`, and why publishing
+> it elsewhere without setting one prints a warning at startup.
 
 ### Without Docker
 
@@ -679,12 +726,9 @@ docker exec pi-manager printenv CONSOLE_URL
   backend stack is confirmed.
 - **`cypress/included` version** — `Dockerfile.cypress` uses `latest` as a placeholder; pin
   it to the project's actual Cypress version.
-- **Interactive tmux in the console** — the mosaic is read-only on purpose; a real terminal in
-  the browser (WebSocket + pty, implemented in the console alone) is the next step if looking
-  turns out not to be enough.
 - **Console authentication** — `CONSOLE_TOKEN` exists but is opt-in, and the port is on
   loopback by default. If the console starts being published on shared networks routinely, it
-  should be required rather than offered.
+  should be required rather than offered (it already is, for the tmux terminal).
 
 ## License
 

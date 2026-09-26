@@ -7,6 +7,7 @@ este fichero siga siendo solo transporte: rutas, JSON, ficheros y autenticación
 
 from __future__ import annotations
 
+import hmac
 import json
 import threading
 import time
@@ -23,6 +24,7 @@ from .events import MAX_EVENTS_PER_REQUEST, EventStore
 from .cron import CronManager
 from .inbox import Inbox
 from .system import SystemInfo
+from .terminal import TerminalBridge
 from .tmux import TmuxView
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -57,7 +59,8 @@ def _path_parts(path: str, prefix: str) -> list[str]:
 
 
 def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
-                  system: SystemInfo, inbox: Inbox, cron: CronManager, tmux: TmuxView):
+                  system: SystemInfo, inbox: Inbox, cron: CronManager, tmux: TmuxView,
+                  terminal: TerminalBridge):
     class Handler(BaseHTTPRequestHandler):
         # Silencia el log por defecto (una línea por request) para no ensuciar la salida del
         # contenedor, que es donde se ven los avisos que sí importan.
@@ -108,12 +111,17 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
             """
             if not config.token:
                 return True, ()
-            if self.headers.get(TOKEN_HEADER, "") == config.token:
+
+            def matches(candidate: str) -> bool:
+                return hmac.compare_digest(candidate.encode("utf-8"),
+                                           config.token.encode("utf-8"))
+
+            if matches(self.headers.get(TOKEN_HEADER, "")):
                 return True, ()
             cookie = SimpleCookie(self.headers.get("Cookie", ""))
-            if TOKEN_COOKIE in cookie and cookie[TOKEN_COOKIE].value == config.token:
+            if TOKEN_COOKIE in cookie and matches(cookie[TOKEN_COOKIE].value):
                 return True, ()
-            if (query.get("token") or [""])[0] == config.token:
+            if matches((query.get("token") or [""])[0]):
                 return True, ((
                     "Set-Cookie",
                     f"{TOKEN_COOKIE}={config.token}; Path=/; HttpOnly; SameSite=Strict",
@@ -196,7 +204,18 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 return
 
             if parsed.path == "/api/tmux/panes":
-                self._json_or_error(lambda: {"agents": tmux.agents()}, extra_headers)
+                def listing():
+                    enabled, reason = terminal.availability()
+                    return {"agents": tmux.agents(),
+                            "interactive": {"enabled": enabled, "reason": reason}}
+                self._json_or_error(listing, extra_headers)
+                return
+
+            tmux_attach = _path_parts(parsed.path, "/api/tmux/attach/")
+            if len(tmux_attach) == 1:
+                terminal.serve(self, tmux_attach[0],
+                               lambda status, message: self._send_json(
+                                   {"error": message}, status=status))
                 return
 
             tmux_pane = _path_parts(parsed.path, "/api/tmux/panes/")
@@ -482,8 +501,9 @@ def serve(config: Config) -> int:
     cron = CronManager(db, events, inbox, config)
     cron.start()
     tmux = TmuxView(docker, system)
+    terminal = TerminalBridge(docker, system, config.token)
 
-    handler = _make_handler(config, docker, events, system, inbox, cron, tmux)
+    handler = _make_handler(config, docker, events, system, inbox, cron, tmux, terminal)
     try:
         httpd = ThreadingHTTPServer(("0.0.0.0", config.port), handler)
     except OSError as exc:
@@ -517,6 +537,10 @@ def serve(config: Config) -> int:
         else:
             print(f"[console] aviso: {config.docker_socket} no responde; la información de "
                   "contenedores no estará disponible.")
+    if docker:
+        enabled, reason = terminal.availability()
+        print("[console] terminal tmux:   " + ("interactiva (CONSOLE_TOKEN definido)" if enabled
+              else f"solo lectura ({reason})"))
     if config.publishes_beyond_loopback() and not config.token:
         print(f"[console] AVISO: el puerto se publica en {config.bind} y la consola NO pide "
               "autenticación: cualquiera que alcance ese puerto entra. Define CONSOLE_TOKEN "

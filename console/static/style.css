@@ -336,3 +336,21 @@ ul.events li .tag { margin-left: auto; text-transform: none; }
 }
 .modal-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .modal-head .dim { flex: 1; font-size: 12px; }
+
+/* Modo escritura: teclear aquí llega al agente, así que se nota de un vistazo. */
+.modal.writing { border-color: #ff7a90; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px #ff7a90; }
+.badge-live {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #ff7a90;
+  color: #ff7a90;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+.ghost:disabled { opacity: 0.45; cursor: not-allowed; }
+/* La terminal se queda con el ancho del modal; si la letra mínima no basta, hace scroll. */
+.tmux-term { overflow: auto; max-height: calc(100vh - 130px); background: #0b0d13; }
+.tmux-term .xterm { padding: 0; }
+/* El historial lo lleva tmux, no el navegador: la barra de scroll de xterm.js no serviría de nada. */
+.tmux-term .xterm .xterm-viewport { overflow-y: hidden; }

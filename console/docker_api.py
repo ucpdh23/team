@@ -6,9 +6,13 @@ ARCHITECTURE.md. No se instala el cliente `docker` en la imagen: la API es HTTP 
 un socket unix, así que `http.client` con un socket AF_UNIX basta y la imagen se ahorra el
 paquete entero.
 
-Todo lo de aquí es de solo lectura y degrada con elegancia: si el socket no está montado o el
-daemon no contesta, `available()` devuelve False y el resto devuelve listas vacías en vez de
-reventar. La consola tiene que poder arrancar sin Docker (p. ej. `setup.py --console-local`).
+Las consultas degradan con elegancia: si el socket no está montado o el daemon no contesta,
+`available()` devuelve False y el resto devuelve listas vacías en vez de reventar. La consola
+tiene que poder arrancar sin Docker (p. ej. `setup.py --console-local`).
+
+`exec_attach` es la excepción a "solo mirar": abre una terminal interactiva dentro de un
+contenedor (la usa `terminal.py`), así que quien la llame es quien responde de que solo se
+ejecute lo que debe.
 """
 
 from __future__ import annotations
@@ -106,6 +110,85 @@ class DockerAPI:
         if status != 200:
             return None
         return _demux(stream)
+
+
+    def exec_attach(self, container: str, cmd: list[str],
+                    env: list[str] | None = None) -> "ExecStream | None":
+        """Como `docker exec -it`: arranca `cmd` con una pseudo-terminal y devuelve el canal.
+
+        A diferencia de `exec_capture` (una petición, una respuesta), aquí se pide a Docker
+        que convierta la conexión HTTP en un canal de bytes crudo y bidireccional
+        (`Upgrade: tcp`). Con TTY no hay flujo multiplexado que separar: lo que llega es lo que
+        la aplicación dibujó, y lo que se escribe es lo que ella lee del teclado.
+        """
+        status, body = self.post(
+            f"/containers/{container}/exec",
+            {"AttachStdin": True, "AttachStdout": True, "AttachStderr": True, "Tty": True,
+             "Cmd": cmd, "Env": env or []},
+        )
+        if status != 201:
+            return None
+        try:
+            exec_id = json.loads(body.decode("utf-8"))["Id"]
+        except (ValueError, KeyError):
+            return None
+
+        payload = b'{"Detach":false,"Tty":true}'
+        request = (
+            f"POST /{API_VERSION}/exec/{exec_id}/start HTTP/1.1\r\n"
+            "Host: docker\r\n"
+            "Content-Type: application/json\r\n"
+            "Connection: Upgrade\r\n"
+            "Upgrade: tcp\r\n"
+            f"Content-Length: {len(payload)}\r\n\r\n"
+        ).encode("ascii") + payload
+
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(self.timeout)
+        try:
+            sock.connect(self.socket_path)
+            sock.sendall(request)
+            head = b""
+            while b"\r\n\r\n" not in head:
+                chunk = sock.recv(4096)
+                if not chunk or len(head) > 65536:
+                    raise OSError("respuesta de Docker incompleta")
+                head += chunk
+            head, _, pending = head.partition(b"\r\n\r\n")
+            code = int(head.split(b"\r\n", 1)[0].split()[1])
+        except (OSError, ValueError, IndexError):
+            sock.close()
+            return None
+        # Docker contesta 101 al `Upgrade`; algunas versiones contestan 200 y siguen igual.
+        if code not in (101, 200):
+            sock.close()
+            return None
+        return ExecStream(self, exec_id, sock, pending)
+
+
+class ExecStream:
+    """Un exec con TTY ya arrancado: `sock` es el canal crudo, `pending` lo que llegó pegado
+    a la cabecera y todavía no se ha entregado."""
+
+    def __init__(self, api: DockerAPI, exec_id: str, sock: socket.socket, pending: bytes):
+        self.api = api
+        self.exec_id = exec_id
+        self.sock = sock
+        self.pending = pending
+
+    def resize(self, rows: int, cols: int) -> bool:
+        status, _ = self.api.post(f"/exec/{self.exec_id}/resize?h={rows}&w={cols}")
+        return status in (200, 201)
+
+    def running(self) -> bool:
+        info = self.api.get(f"/exec/{self.exec_id}/json") or {}
+        return bool(info.get("Running"))
+
+    def close(self) -> None:
+        try:
+            self.sock.close()
+        except OSError:
+            pass
 
 
 def _demux(stream: bytes) -> str:

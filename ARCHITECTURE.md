@@ -244,14 +244,55 @@ The console mounts the host's Docker socket, exactly like `devops` (see the sect
 its security note, which applies here word for word: anything that can talk to that socket has
 root-level control of the host). It is what makes four things possible that pi-link cannot
 answer: the container inventory including **stopped** agents, CPU/memory, the network and disk
-usage, and `exec` for the tmux mosaic. No `docker` client is installed — the API is HTTP over
-a unix socket, spoken with `http.client`, including the 8-byte framed stream that `exec`
-answers with.
+usage, and `exec` for the tmux mosaic and terminal. No `docker` client is installed — the API
+is HTTP over a unix socket, spoken with `http.client`, including the 8-byte framed stream that
+`exec` answers with (and, for the terminal, the raw stream it turns into with a TTY).
 
 The difference from `devops` is that here there is a web in front of the socket, which is why:
 the port is published on loopback by default, the cron can only run scripts already present in
 the mounted catalog (there is no free-form command field), and starting with the port bound
 beyond loopback without a `CONSOLE_TOKEN` prints a warning.
+
+### The tmux terminal
+
+The mosaic and the terminal use `exec` in opposite ways. The mosaic is one request and one
+answer: `tmux capture-pane` runs to completion and its output comes back, no TTY, stdout and
+stderr multiplexed. The terminal (`console/terminal.py`) is the equivalent of
+`docker exec -it <container> tmux attach -t pi`:
+
+```
+browser (xterm.js) ──WebSocket──▶ console ──docker.sock (Upgrade: tcp)──▶ exec, Tty=true ──pty──▶ tmux attach
+```
+
+- With `Tty: true` and `Upgrade: tcp` the daemon stops answering HTTP and turns the connection
+  into a raw byte channel (`DockerAPI.exec_attach`). There is no framing to undo: what arrives is
+  what tmux drew, and what is written is what it reads from the keyboard. The console is a
+  pipe between that socket and the WebSocket (`console/websocket.py`, RFC 6455 in the standard
+  library — no dependency was added), and does not interpret either side.
+- **Closing the connection does not end the exec.** Docker leaves it running, so the `tmux
+  attach` would stay attached forever. Each terminal starts with a unique environment variable
+  (`CONSOLE_ATTACH`); on close the console looks for the process holding it in `/proc` and sends
+  it `SIGHUP`, which tmux treats as "detach". It leaves nothing behind in the container and
+  cannot touch another client. Checked by opening and killing sessions and looking at
+  `tmux list-clients`.
+- **The window must not change size.** A tmux client that is alone decides the window's size
+  even with `-f ignore-size` (the flag only protects the window when another client is
+  attached). The terminal therefore opens the pty at the window's width and height **plus the
+  status line** — one row short and tmux shrinks the window by one row on every connection,
+  which was found the hard way. The size comes from the server; the browser adapts.
+- **Answering tmux's terminal queries breaks the agent's input.** On attach, tmux asks what
+  terminal it is talking to (DA1/DA2/DA3); xterm.js answers by itself, the answer arrives
+  after tmux stopped waiting, and tmux forwards it as text to the pane: `pi` ended up with
+  `[>0;276;0c` typed in its input box. The client tells xterm.js's parser those queries are
+  handled and sends nothing. tmux does not need the answer — `TERM` and the images'
+  `terminal-overrides` already tell it what it needs.
+- **Authorization** is in `terminal.py`, not in the route: `CONSOLE_TOKEN` is required (no token,
+  no terminal), the `Origin` must be the console itself and must be present, the command is fixed
+  by the server, the agent must be a container the console already lists (and never the
+  console), and at most 5 terminals are open at once. Failures that are not a legitimate use
+  (no token, wrong origin, not a WebSocket) are HTTP errors; the rest (agent stopped, session not
+  active, too many terminals) are reported over the WebSocket, because the browser's API does not
+  let a page read the status code of a rejected handshake.
 
 ### Identifying the team
 

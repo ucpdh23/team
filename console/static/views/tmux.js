@@ -1,19 +1,27 @@
-// Vista Tmux: las cinco sesiones a la vez, en solo lectura.
+// Vista Tmux: las cinco sesiones a la vez, y una terminal real para la que elijas.
 //
 // Cada agente corre `pi` dentro de una sesión tmux; aquí se pide su contenido actual con
-// `capture-pane` cada REFRESH_MS y se pinta tal cual, con sus colores. Para trabajar de verdad
-// con un agente sigue estando `docker exec -it <contenedor> tmux attach -t pi` (el botón de
-// cada panel lo copia al portapapeles); lo que no había era poder verlos todos a la vez.
+// `capture-pane` cada REFRESH_MS y se pinta tal cual, con sus colores. El mosaico es solo
+// lectura a propósito: verlos a todos a la vez es barato, teclear en cinco a la vez no.
+//
+// Al ampliar un agente se ve igualmente en solo lectura, y el botón «Escribir» lo cambia por
+// una terminal de verdad (terminal.js): lo tecleado llega al agente. Solo existe si la consola
+// tiene CONSOLE_TOKEN (ver console/terminal.py); si no, el botón sale desactivado con el
+// motivo. `docker exec -it <contenedor> tmux attach -t pi` (botón «attach») sigue ahí.
 //
 // El panel mide 220×50 caracteres, que no caben legibles en una celda de mosaico: se dibuja a
 // tamaño real y se escala con CSS, de forma que se conserva la composición (bordes, columnas)
 // aunque el texto quede diminuto. Para leer, se hace clic y se abre a tamaño completo.
+
+import { openTerminal } from "/terminal.js";
 
 const REFRESH_MS = 5000;
 const LINES = 46;
 const PANE_COLS = 220;
 
 let root = null, timer = null, agents = [], expanded = null;
+let interactive = { enabled: false, reason: "" };
+let terminal = null;
 
 const MARKUP = `
   <div class="view-head">
@@ -26,10 +34,13 @@ const MARKUP = `
   <div id="tmux-modal" class="modal" hidden>
     <div class="modal-head">
       <strong id="tmux-modal-title"></strong>
+      <span class="badge-live" id="tmux-modal-live" hidden>ESCRITURA ACTIVA</span>
       <span class="dim" id="tmux-modal-hint"></span>
+      <button class="ghost small" id="tmux-modal-write">Escribir</button>
       <button class="ghost small" id="tmux-modal-close">Cerrar</button>
     </div>
     <pre class="tmux-pane full" id="tmux-modal-body"></pre>
+    <div class="tmux-term" id="tmux-modal-term" hidden></div>
   </div>
 `;
 
@@ -38,6 +49,8 @@ export async function mount(container) {
   container.innerHTML = MARKUP;
   container.querySelector("#tmux-refresh").addEventListener("click", refreshPanes);
   container.querySelector("#tmux-modal-close").addEventListener("click", closeModal);
+  container.querySelector("#tmux-modal-write").addEventListener("click",
+    () => (terminal ? leaveWrite() : enterWrite()));
   document.addEventListener("keydown", onKey);
 
   await loadAgents();
@@ -51,23 +64,26 @@ export async function mount(container) {
 export function unmount() {
   clearInterval(timer);
   document.removeEventListener("keydown", onKey);
-  timer = null; root = null; agents = []; expanded = null;
+  if (terminal) terminal.close();
+  terminal = null; timer = null; root = null; agents = []; expanded = null;
 }
 
 function onKey(event) {
-  if (event.key === "Escape") closeModal();
+  // Con la terminal abierta, Esc es del agente (pi lo usa): solo se cierra con los botones.
+  if (event.key === "Escape" && !terminal) closeModal();
 }
 
 async function loadAgents() {
   try {
     const data = await (await fetch("/api/tmux/panes")).json();
     agents = data.agents || [];
+    interactive = data.interactive || { enabled: false, reason: "" };
   } catch (_) { agents = []; }
   if (!root) return;
 
   const up = agents.filter((a) => a.state === "running").length;
   root.querySelector("#tmux-meta").textContent = agents.length
-    ? `${up}/${agents.length} agentes en marcha · solo lectura, refresco cada ${REFRESH_MS / 1000} s`
+    ? `${up}/${agents.length} agentes en marcha · mosaico en solo lectura, refresco cada ${REFRESH_MS / 1000} s · haz clic en uno para ampliarlo`
     : "No se ve ningún agente del equipo.";
 
   root.querySelector("#tmux-grid").innerHTML = agents.map((a) => `
@@ -109,7 +125,7 @@ async function refreshPanes() {
         ? `<span class="dim">${escapeHtml(data.error)}</span>`
         : ansiToHtml(data.text || "");
       fitScale(pane);
-      if (expanded === a.agent) renderModal(a, data);
+      if (expanded === a.agent && !terminal) renderModal(a, data);
     } catch (_) { /* el siguiente refresco lo reintenta */ }
   }));
   for (const a of agents.filter((x) => x.state !== "running")) {
@@ -153,9 +169,61 @@ function openModal(agent) {
   const modal = root.querySelector("#tmux-modal");
   modal.hidden = false;
   root.querySelector("#tmux-modal-title").textContent = `${agent} · ${info.container}`;
-  root.querySelector("#tmux-modal-hint").textContent =
-    "solo lectura · Esc para cerrar · para escribir, usa el botón attach";
+  showReadOnly();
   refreshPanes();
+}
+
+// ── Modo escritura ──────────────────────────────────────────────────────────
+
+const setHint = (text) => { root.querySelector("#tmux-modal-hint").textContent = text; };
+
+/** El modal en su estado normal: la foto de `capture-pane`, sin teclado. */
+function showReadOnly(note) {
+  const write = root.querySelector("#tmux-modal-write");
+  root.querySelector("#tmux-modal").classList.remove("writing");
+  root.querySelector("#tmux-modal-live").hidden = true;
+  root.querySelector("#tmux-modal-term").hidden = true;
+  root.querySelector("#tmux-modal-body").hidden = false;
+  write.textContent = "Escribir";
+  write.disabled = !interactive.enabled;
+  setHint(note || (interactive.enabled
+    ? "solo lectura · Esc para cerrar · «Escribir» abre una terminal real"
+    : `solo lectura · Esc para cerrar · ${interactive.reason}`));
+}
+
+function enterWrite() {
+  if (terminal || !expanded || !interactive.enabled) return;
+  const host = root.querySelector("#tmux-modal-term");
+  root.querySelector("#tmux-modal-body").hidden = true;
+  host.hidden = false;
+  terminal = openTerminal(host, expanded, onTerminalState);
+}
+
+function leaveWrite(note) {
+  if (terminal) terminal.close();
+  terminal = null;
+  if (!root) return;
+  showReadOnly(note);
+  refreshPanes();
+}
+
+function onTerminalState(state, detail) {
+  if (!root) return;
+  const write = root.querySelector("#tmux-modal-write");
+  if (state === "connecting") {
+    write.disabled = true;
+    setHint("conectando…");
+  } else if (state === "live") {
+    root.querySelector("#tmux-modal").classList.add("writing");
+    root.querySelector("#tmux-modal-live").hidden = false;
+    write.textContent = "Solo lectura";
+    write.disabled = false;
+    setHint("Esc y Ctrl+C van al agente (Ctrl+C copia si hay selección) · Shift+arrastrar (Opción en Mac) para seleccionar");
+  } else {
+    // "error" o "closed": la terminal ya se ha desmontado sola; se vuelve a la vista normal.
+    terminal = null;
+    leaveWrite(detail ? `terminal cerrada: ${detail}` : "terminal cerrada");
+  }
 }
 
 function renderModal(agent, data) {
@@ -164,6 +232,7 @@ function renderModal(agent, data) {
 }
 
 function closeModal() {
+  if (terminal) leaveWrite();
   expanded = null;
   const modal = root?.querySelector("#tmux-modal");
   if (modal) modal.hidden = true;

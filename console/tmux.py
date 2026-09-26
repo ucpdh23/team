@@ -5,10 +5,10 @@ módulo pide a cada contenedor el contenido actual de ese panel con `tmux captur
 devuelve exactamente lo que se vería al engancharse — sin engancharse, sin teclear y sin poder
 interferir.
 
-Por qué solo lectura: para trabajar de verdad con un agente ya está
-`docker exec -it <contenedor> tmux attach -t pi` (o `python setup.py --tmux <rol>`), que da una
-terminal completa. Lo que no había era poder ver los cinco a la vez, y eso es lo que resuelve
-esto.
+Por qué solo lectura: ver los cinco a la vez es barato y no interfiere con nadie; teclear en
+cinco a la vez, no. Para actuar sobre uno está `terminal.py` (el botón «Escribir» del modal, que
+exige CONSOLE_TOKEN), o `docker exec -it <contenedor> tmux attach -t pi`
+(`python setup.py --tmux <rol>`) desde una terminal propia.
 
 El coste es un `exec` por agente y refresco, así que hay una caché corta: varias pestañas
 abiertas del navegador no multiplican el trabajo del daemon.
