@@ -31,7 +31,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
-__all__ = ["notify", "log", "state", "ado", "job_name", "run_id", "ConsoleError"]
+__all__ = ["notify", "log", "state", "agents", "ado", "job_name", "run_id", "ConsoleError"]
 
 CONSOLE_URL = (os.environ.get("CONSOLE_URL") or "http://127.0.0.1:4070").rstrip("/")
 TIMEOUT_S = 10
@@ -86,6 +86,20 @@ def notify(to: str, content: str) -> str:
     return (result or {}).get("id", "")
 
 
+def agents() -> dict[str, dict]:
+    """Estado de cada agente conectado a la malla, tal como lo ve el hub de pi-link.
+
+    Devuelve `{nombre: {"status", "since_s", "tokens", "context_window", ...}}`, donde `status`
+    es `idle`, `thinking`, `tool` o `compacting` y `since_s` los segundos que lleva en él. Un
+    agente apagado o desconectado simplemente no aparece. Si el hub no responde se lanza
+    `ConsoleError`: "no sé cómo está el equipo" no es lo mismo que "están todos ociosos".
+    """
+    link = (_request("GET", "/api/system") or {}).get("link") or {}
+    if not link.get("available"):
+        raise ConsoleError(f"no se sabe el estado de los agentes: {link.get('reason', '?')}")
+    return link.get("terminals") or {}
+
+
 class _State:
     """Memoria del job entre ejecuciones.
 
@@ -138,6 +152,8 @@ class _WorkItem:
         self.type = fields.get("System.WorkItemType", "")
         assigned = fields.get("System.AssignedTo") or {}
         self.assigned_to = assigned.get("displayName") if isinstance(assigned, dict) else assigned
+        #: ADO guarda las etiquetas como una sola cadena separada por "; ".
+        self.tags = [t.strip() for t in (fields.get("System.Tags") or "").split(";") if t.strip()]
 
     def __repr__(self) -> str:
         return f"<WorkItem #{self.id} {self.state}: {self.title[:40]}>"
@@ -176,6 +192,17 @@ class _Ado:
 
     def work_item(self, item_id: int | str) -> _WorkItem:
         return _WorkItem(self._az("boards", "work-item", "show", "--id", str(item_id)))
+
+    def update(self, item_id: int | str, fields: dict[str, str]) -> _WorkItem:
+        """Cambia campos de un work item y devuelve cómo ha quedado.
+
+        `fields` usa los nombres de referencia de ADO (`{"System.Tags": "a; b"}`). Ojo con
+        `System.Tags`: se sustituye entera, así que para cambiar una etiqueta hay que mandar
+        la lista completa (ver `_WorkItem.tags`).
+        """
+        pairs = [f"{name}={value}" for name, value in fields.items()]
+        return _WorkItem(self._az("boards", "work-item", "update", "--id", str(item_id),
+                                  "--fields", *pairs))
 
 
 ado = _Ado()

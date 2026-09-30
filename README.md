@@ -70,7 +70,9 @@ backend's headless Eclipse (`jdtbridge`) is wired up — lives in
   team, written for someone joining the project (what this is, who's on the team, how to
   work with it).
 - [`console/sdk/README.md`](console/sdk/README.md) — the API the console offers to the
-  scripts you schedule in it (`notify`, `state`, `ado.query`, `log`), with a worked example.
+  scripts you schedule in it (`notify`, `state`, `agents`, `ado`, `log`), with a worked example.
+- [`docs/cron-scripts/`](docs/cron-scripts/) — example scripts for that cron, ready to copy
+  into `tmp/scripts/`.
 - [`docs/work-procedures.md`](docs/work-procedures.md) — the detailed workflow: the eight
   stages a piece of work moves through, each role's objectives, and exactly what changes in
   Azure DevOps and in each role's own `workitems/` folder along the way.
@@ -86,7 +88,8 @@ backend's headless Eclipse (`jdtbridge`) is wired up — lives in
 ├── ARCHITECTURE.md              # technical detail: pi-link mesh, backend's headless Eclipse
 ├── docs/                        # mounted read-write at /docs in every container (not /workspace)
 │   ├── introduction.md         # human-oriented intro to the team
-│   └── work-procedures.md      # detailed workflow: stages, roles, ADO/local workitem changes
+│   ├── work-procedures.md      # detailed workflow: stages, roles, ADO/local workitem changes
+│   └── cron-scripts/           # example scripts for the console's cron, to copy into tmp/scripts/
 ├── cost-tracking/
 │   └── <role>/                  # mounted at ~/.pi/cost-tracker in that role's container — see
 │                                 # "LLM cost tracking" below
