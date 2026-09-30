@@ -54,6 +54,9 @@ El manager lo recibe como un mensaje con encabezado propio
 (`[Consola del equipo · aviso programado "…"]`) y, si estaba ocioso, arranca turno: nadie tiene
 que estar mirando la pantalla a las ocho de la tarde.
 
+Más ejemplos, listos para copiar a `tmp/scripts/`, en
+[`docs/cron-scripts/`](../../docs/cron-scripts/).
+
 ## Reglas de la casa
 
 - **Stdlib por defecto.** `urllib` y `json` bastan para hablar con la consola y con la API de
