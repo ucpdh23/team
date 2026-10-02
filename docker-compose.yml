@@ -25,6 +25,11 @@ services:
       # nunca el texto). `console` es el alias de servicio, estable con cualquier
       # CONTAINER_PREFIX. Vacío = este agente no emite nada.
       - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
+      # Mismo valor que ve la consola (ver más abajo): si CONSOLE_TOKEN está definido, la
+      # consola rechaza toda petición sin él, incluidas las de esta extensión — sin esto, con
+      # un token puesto, el agente reporta actividad y recoge avisos del cron en silencio
+      # contra un 401 permanente.
+      - CONSOLE_TOKEN=${CONSOLE_TOKEN:-}
       - REPO_URL=${MANAGER_REPO_URL:-}
       - GIT_TOKEN=${MANAGER_GIT_TOKEN:-}
       - ADO_PAT=${MANAGER_ADO_PAT:-}
@@ -71,6 +76,11 @@ services:
       # nunca el texto). `console` es el alias de servicio, estable con cualquier
       # CONTAINER_PREFIX. Vacío = este agente no emite nada.
       - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
+      # Mismo valor que ve la consola (ver más abajo): si CONSOLE_TOKEN está definido, la
+      # consola rechaza toda petición sin él, incluidas las de esta extensión — sin esto, con
+      # un token puesto, el agente reporta actividad y recoge avisos del cron en silencio
+      # contra un 401 permanente.
+      - CONSOLE_TOKEN=${CONSOLE_TOKEN:-}
       - BACKEND_STACK=${BACKEND_STACK:-java}
       - REPO_URL=${BACKEND_REPO_URL:-}
       - GIT_TOKEN=${BACKEND_GIT_TOKEN:-}
@@ -131,6 +141,11 @@ services:
       # nunca el texto). `console` es el alias de servicio, estable con cualquier
       # CONTAINER_PREFIX. Vacío = este agente no emite nada.
       - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
+      # Mismo valor que ve la consola (ver más abajo): si CONSOLE_TOKEN está definido, la
+      # consola rechaza toda petición sin él, incluidas las de esta extensión — sin esto, con
+      # un token puesto, el agente reporta actividad y recoge avisos del cron en silencio
+      # contra un 401 permanente.
+      - CONSOLE_TOKEN=${CONSOLE_TOKEN:-}
       - FRONTEND_STACK=${FRONTEND_STACK:-angular}
       # El agente lo lee para arrancar su servidor de desarrollo en el puerto que este
       # servicio publica de verdad, en vez de dar por bueno el default de su framework
@@ -185,6 +200,11 @@ services:
       # nunca el texto). `console` es el alias de servicio, estable con cualquier
       # CONTAINER_PREFIX. Vacío = este agente no emite nada.
       - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
+      # Mismo valor que ve la consola (ver más abajo): si CONSOLE_TOKEN está definido, la
+      # consola rechaza toda petición sin él, incluidas las de esta extensión — sin esto, con
+      # un token puesto, el agente reporta actividad y recoge avisos del cron en silencio
+      # contra un 401 permanente.
+      - CONSOLE_TOKEN=${CONSOLE_TOKEN:-}
       - REPO_URL=${DEVOPS_REPO_URL:-}
       - GIT_TOKEN=${DEVOPS_GIT_TOKEN:-}
       - ADO_PAT=${DEVOPS_ADO_PAT:-}
@@ -235,6 +255,11 @@ services:
       # nunca el texto). `console` es el alias de servicio, estable con cualquier
       # CONTAINER_PREFIX. Vacío = este agente no emite nada.
       - CONSOLE_URL=${CONSOLE_URL:-http://console:4070}
+      # Mismo valor que ve la consola (ver más abajo): si CONSOLE_TOKEN está definido, la
+      # consola rechaza toda petición sin él, incluidas las de esta extensión — sin esto, con
+      # un token puesto, el agente reporta actividad y recoge avisos del cron en silencio
+      # contra un 401 permanente.
+      - CONSOLE_TOKEN=${CONSOLE_TOKEN:-}
       - REPO_URL=${CYPRESS_REPO_URL:-}
       - GIT_TOKEN=${CYPRESS_GIT_TOKEN:-}
       - ADO_PAT=${CYPRESS_ADO_PAT:-}

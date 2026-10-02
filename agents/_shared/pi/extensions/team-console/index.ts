@@ -59,6 +59,12 @@ export default function (pi: ExtensionAPI) {
   // Es lo que permite apagarla entera con CONSOLE_URL= en .env.
   if (!baseUrl || !self) return;
 
+  // Con CONSOLE_TOKEN definido, la consola exige esta cabecera en TODA petición, incluida la
+  // de esta extensión — sin ella, cada reporte de actividad y cada recogida de avisos del
+  // cron fallan con 401 en silencio (ver la captura de errores de cada fetch de abajo).
+  const token = (process.env.CONSOLE_TOKEN ?? "").trim();
+  const authHeaders: Record<string, string> = token ? { "x-console-token": token } : {};
+
   const endpoint = `${baseUrl}/api/events`;
   const queue: Event[] = [];
   // Destinatario de cada link_send en vuelo: tool_execution_end NO trae los argumentos de la
@@ -101,7 +107,7 @@ export default function (pi: ExtensionAPI) {
     try {
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders },
         body: JSON.stringify(batch),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
@@ -178,7 +184,7 @@ export default function (pi: ExtensionAPI) {
     try {
       const response = await fetch(`${baseUrl}/api/inbox/take`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders },
         body: JSON.stringify({ agent: self }),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
@@ -207,6 +213,7 @@ export default function (pi: ExtensionAPI) {
       try {
         await fetch(`${baseUrl}/api/inbox/${note.id}/ack`, {
           method: "POST",
+          headers: authHeaders,
           signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
       } catch { /* sin ack, la consola lo reentregará marcado como repetido */ }
