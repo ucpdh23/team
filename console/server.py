@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import hmac
 import json
+import os
+import shutil
+import subprocess
 import threading
 import time
 from http.cookies import SimpleCookie
@@ -461,6 +464,29 @@ def _int_param(query: dict, name: str):
         return None
 
 
+def _configure_ado_defaults() -> None:
+    """Hace para la consola lo que `docker/entrypoint.sh` hace para cada agente: fija la
+    organización/proyecto por defecto de `az`, para no tener que pasar `--organization` en
+    cada `az boards ...` (ver `console/sdk/console_sdk.py`, que no lo hace).
+
+    Sin esto, `ado.query()`/`ado.work_item()`/`ado.update()` fallan con "--organization must be
+    specified" en cuanto algún script del cron los usa de verdad — los agentes no lo sufren
+    porque su propio entrypoint ya lo configura antes de arrancar `pi`, pero `python -m console`
+    no pasa por ahí. Igual que allí: silencioso y no crítico, az/ADO es opcional en la consola.
+    """
+    org, project = os.environ.get("ADO_ORGANIZATION_URL", ""), os.environ.get("ADO_PROJECT", "")
+    if not (org and project) or not shutil.which("az"):
+        return
+    try:
+        subprocess.run(
+            ["az", "devops", "configure", "--defaults",
+             f"organization={org}", f"project={project}"],
+            capture_output=True, timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"[console] aviso: no se pudo configurar az devops por defecto: {exc}")
+
+
 def _start_retention(events: EventStore, inbox: Inbox) -> None:
     """Purga al arrancar y luego a diario. Hilo demonio: no retiene el cierre del proceso.
 
@@ -492,6 +518,7 @@ def serve(config: Config) -> int:
         candidate = DockerAPI(config.docker_socket)
         docker = candidate if candidate.available() else None
 
+    _configure_ado_defaults()
     config.data_dir.mkdir(parents=True, exist_ok=True)
     db = Database(config.data_dir / "console.db")
     events = EventStore(db, retention_days=config.event_retention_days)
