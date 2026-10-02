@@ -20,6 +20,9 @@ import threading
 import time
 
 SESSION = "pi"
+# El orden del mosaico: el que se lee el equipo (quien coordina, luego quien construye, quien
+# despliega y quien verifica). Un rol que no esté aquí va detrás, por orden alfabético.
+ROLE_ORDER = ["manager", "backend", "frontend", "devops", "cypress"]
 DEFAULT_LINES = 60
 MAX_LINES = 400
 CACHE_TTL_S = 2.0
@@ -36,8 +39,9 @@ class TmuxView:
     def agents(self) -> list[dict]:
         """Los contenedores que pueden tener sesión: todos menos la propia consola.
 
-        Los que están en marcha van primero: un mosaico es para mirar lo que está vivo, y los
-        parados solo tienen que estar ahí para que se note que faltan.
+        Van en el orden fijo de `ROLE_ORDER`, estén o no en marcha: que un agente parado deje
+        un hueco en su sitio, en vez de recolocar el resto, es lo que permite encontrar cada
+        uno siempre en el mismo lugar.
         """
         agents = [
             {"agent": c["role"], "container": c["name"], "state": c["state"],
@@ -45,7 +49,8 @@ class TmuxView:
             for c in self.system.containers()
             if c["role"] != "console"
         ]
-        return sorted(agents, key=lambda a: (a["state"] != "running", a["agent"]))
+        rank = {role: i for i, role in enumerate(ROLE_ORDER)}
+        return sorted(agents, key=lambda a: (rank.get(a["agent"], len(ROLE_ORDER)), a["agent"]))
 
     def pane(self, agent: str, lines: int = DEFAULT_LINES, colors: bool = True) -> dict:
         lines = max(5, min(int(lines), MAX_LINES))
