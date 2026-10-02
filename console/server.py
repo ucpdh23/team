@@ -313,6 +313,7 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 try:
                     result = inbox.send(
                         payload.get("to", ""), payload.get("content", ""), payload.get("job"),
+                        payload.get("id"),
                     )
                 except ValueError as exc:
                     self._send_json({"error": str(exc)}, status=400)

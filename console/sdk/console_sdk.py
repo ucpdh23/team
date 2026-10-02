@@ -74,25 +74,37 @@ def log(*parts) -> None:
     print(f"[{stamp}]", *parts, flush=True)
 
 
-def notify(to: str, content: str) -> str:
+def notify(to: str, content: str, key: str | None = None) -> str:
     """Deja un aviso para un agente y devuelve su id.
 
     No se entrega en el momento: se encola y la extensión de ese agente lo recoge (en ≤15 s) y
     se lo inyecta, arrancándole turno aunque estuviera ocioso. Si el agente está apagado, el
     aviso espera a que vuelva, hasta su caducidad.
+
+    `key`, si se da, hace la llamada idempotente: si no se sabe si un envío anterior llegó a
+    procesarse (p. ej. una excepción de red leyendo la respuesta, que no dice si la petición
+    llegó a la consola o no) y se reintenta con la misma `key`, el agente no recibe el aviso
+    dos veces — la consola ya tenía uno con ese id y devuelve el que ya había. Basta con que
+    `key` sea única dentro de este script (se guarda como `job_name:key`); no hace falta
+    coordinarla con los demás.
     """
-    result = _request("POST", "/api/link/send",
-                      {"to": to, "content": content, "job": job_name or None})
+    note_id = f"{job_name}:{key}" if key and job_name else key
+    payload = {"to": to, "content": content, "job": job_name or None}
+    if note_id:
+        payload["id"] = note_id
+    result = _request("POST", "/api/link/send", payload)
     return (result or {}).get("id", "")
 
 
 def agents() -> dict[str, dict]:
     """Estado de cada agente conectado a la malla, tal como lo ve el hub de pi-link.
 
-    Devuelve `{nombre: {"status", "since_s", "tokens", "context_window", ...}}`, donde `status`
-    es `idle`, `thinking`, `tool` o `compacting` y `since_s` los segundos que lleva en él. Un
-    agente apagado o desconectado simplemente no aparece. Si el hub no responde se lanza
-    `ConsoleError`: "no sé cómo está el equipo" no es lo mismo que "están todos ociosos".
+    Devuelve `{nombre: {"status", "since_s", "tokens", "context_window", ...}}`. `status` es
+    uno de `idle`, `thinking`, `tool` o `compacting` según lo reporta el hub de pi-link — pero
+    trátalo con `==  "idle"` o `!= "idle"`, no asumas que el resto son exactamente esas cuatro
+    cadenas (`tool` puede traer sufijo, p. ej. qué herramienta). Un agente apagado o
+    desconectado simplemente no aparece. Si el hub no responde se lanza `ConsoleError`: "no sé
+    cómo está el equipo" no es lo mismo que "están todos ociosos".
     """
     link = (_request("GET", "/api/system") or {}).get("link") or {}
     if not link.get("available"):

@@ -21,6 +21,7 @@ perderse con un "terminal not found".
 from __future__ import annotations
 
 import json
+import sqlite3
 import time
 import uuid
 
@@ -30,6 +31,9 @@ import uuid
 REDELIVER_AFTER_MS = 5 * 60 * 1000
 MAX_CONTENT_CHARS = 8000
 MAX_TAKE = 10
+#: Tope de una clave de idempotencia (ver `send`). Generosa de sobra para "job:lo-que-sea"
+#: y corta la posibilidad de que un script meta ahí algo que no es una clave.
+MAX_ID_CHARS = 200
 
 
 def now_ms() -> int:
@@ -44,7 +48,16 @@ class Inbox:
 
     # ------------------------------------------------------------------- envío
 
-    def send(self, agent: str, content: str, job: str | None = None) -> dict:
+    def send(self, agent: str, content: str, job: str | None = None,
+            note_id: str | None = None) -> dict:
+        """Encola un aviso. Con `note_id`, la llamada es idempotente.
+
+        Un script que no sepa si una llamada anterior llegó a procesarse (p. ej. el envío tuvo
+        éxito pero la respuesta se perdió por el camino) puede reintentar con el mismo
+        `note_id`: si ya existe un aviso con ese id, se devuelve tal cual en vez de encolar
+        uno nuevo, así que el agente nunca recibe el mismo aviso dos veces por un reintento.
+        Sin `note_id` (el caso de siempre) cada llamada genera uno nuevo, como antes.
+        """
         agent = (agent or "").strip()
         content = (content or "").strip()
         if not agent:
@@ -56,14 +69,34 @@ class Inbox:
             # contexto del agente que lo recibe.
             raise ValueError(f"el aviso supera {MAX_CONTENT_CHARS} caracteres")
 
-        note_id = str(uuid.uuid4())
+        note_id = (note_id or "").strip()[:MAX_ID_CHARS]
+        if note_id:
+            existing = self._by_id(note_id)
+            if existing:
+                return existing
+        else:
+            note_id = str(uuid.uuid4())
+
         created = now_ms()
-        self.db.execute(
-            "INSERT INTO inbox (id, agent, content, job, created_ts, expires_ts) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (note_id, agent, content, job, created, created + self.ttl_hours * 3_600_000),
-        )
+        try:
+            self.db.execute(
+                "INSERT INTO inbox (id, agent, content, job, created_ts, expires_ts) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (note_id, agent, content, job, created, created + self.ttl_hours * 3_600_000),
+            )
+        except sqlite3.IntegrityError:
+            # Otra petición con la misma clave ganó la carrera entre el SELECT de arriba y
+            # este INSERT: exactamente lo que la idempotencia debía evitar, no un fallo.
+            return self._by_id(note_id)
         return {"id": note_id, "queued": True, "agent": agent, "chars": len(content)}
+
+    def _by_id(self, note_id: str) -> dict | None:
+        rows = self.db.query("SELECT agent, content FROM inbox WHERE id = ?", (note_id,))
+        if not rows:
+            return None
+        row = rows[0]
+        return {"id": note_id, "queued": True, "agent": row["agent"],
+                "chars": len(row["content"]), "deduped": True}
 
     # ---------------------------------------------------------------- entrega
 

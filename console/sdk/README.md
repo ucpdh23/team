@@ -13,10 +13,10 @@ pone en `PYTHONPATH` al ejecutar cada script.
 
 | | Para qué |
 |---|---|
-| `notify(to, content)` | Deja un aviso para un agente. Lo recoge su extensión en ≤15 s y se lo inyecta, arrancándole turno aunque esté ocioso. Si está apagado, espera. |
+| `notify(to, content, key=None)` | Deja un aviso para un agente. Lo recoge su extensión en ≤15 s y se lo inyecta, arrancándole turno aunque esté ocioso. Si está apagado, espera. Con `key`, es idempotente: un reintento con la misma `key` tras un fallo del que no se sabe si llegó no duplica el aviso. |
 | `log(...)` | Como `print`, con hora. La salida se guarda entera y se ve en la pestaña Cron. |
 | `state` | Memoria del job entre ejecuciones (`state["ultimo_aviso"] = [...]`). Vive en la base de datos de la consola, porque el directorio de scripts está montado en solo lectura. |
-| `agents()` | Estado de cada agente conectado (`{nombre: {"status", "since_s", ...}}`, con `status` = `idle`/`thinking`/`tool`/`compacting`), leído del hub de pi-link. Un agente apagado no aparece; si el hub no responde, lanza `ConsoleError`. |
+| `agents()` | Estado de cada agente conectado (`{nombre: {"status", "since_s", ...}}`), leído del hub de pi-link. `status` suele ser `idle`/`thinking`/`tool`/`compacting`, pero compara con `== "idle"` / `!= "idle"`, no des por hecho que el resto son exactamente esas cuatro cadenas. Un agente apagado no aparece; si el hub no responde, lanza `ConsoleError`. |
 | `ado.query(wiql)` / `ado.work_item(id)` | Consulta a Azure DevOps con el PAT (`CONSOLE_ADO_PAT`) y la organización ya resueltos. Por debajo es `az boards`, la misma sintaxis que usan los agentes. |
 | `ado.update(id, fields)` | Cambia campos de un work item (`{"System.Tags": "a; b"}`). Las etiquetas se sustituyen enteras: parte de `item.tags` y manda la lista completa. |
 | `job_name`, `run_id` | Qué job y qué ejecución son ésta. |

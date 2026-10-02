@@ -79,15 +79,24 @@ def team_is_idle() -> bool:
 
 
 def kind_of(item) -> str | None:
-    """Qué etiqueta de TAGS lleva el ticket, comparando etiquetas completas."""
-    return next((tag for tag in TAGS if tag in item.tags), None)
+    """Qué etiqueta de TAGS lleva el ticket, sin importar cómo esté escrita (AI_Analysis,
+    ai_analysis... todas cuentan; lo que se escribe de vuelta siempre es la forma canónica)."""
+    upper = {tag.upper() for tag in item.tags}
+    return next((tag for tag in TAGS if tag in upper), None)
+
+
+def _priority_key(item):
+    # `or 99` trataría una prioridad 0 real como "sin prioridad" (0 es falsy); solo la
+    # ausencia del campo (None) debe ir al final.
+    priority = item.fields.get(PRIORITY)
+    return (99 if priority is None else priority, item.id)
 
 
 def next_ticket():
     # WIQL ya ordena, pero se vuelve a ordenar aquí para no depender de que az conserve el
-    # orden. Un ticket sin prioridad va al final.
+    # orden.
     candidates = [item for item in ado.query(WIQL) if kind_of(item)]
-    candidates.sort(key=lambda item: (item.fields.get(PRIORITY) or 99, item.id))
+    candidates.sort(key=_priority_key)
     return candidates[0] if candidates else None
 
 
@@ -109,7 +118,7 @@ def main(dry_run: bool) -> int:
         return 0
 
     original = "; ".join(ticket.tags)
-    updated = "; ".join(TAGS[kind] if tag == kind else tag for tag in ticket.tags)
+    updated = "; ".join(TAGS[kind] if tag.upper() == kind else tag for tag in ticket.tags)
     prompt = PROMPTS[kind].format(
         id=ticket.id, type=ticket.type, title=ticket.title,
         priority=ticket.fields.get(PRIORITY, "sin prioridad"),
@@ -123,11 +132,23 @@ def main(dry_run: bool) -> int:
     ado.update(ticket.id, {"System.Tags": updated})
     log(f"#{ticket.id}: {kind} → {TAGS[kind]}")
     try:
-        notify("manager", prompt)
-    except Exception:
-        ado.update(ticket.id, {"System.Tags": original})
-        log(f"no se pudo avisar al manager; #{ticket.id} vuelve a «{original}»")
-        raise
+        # key: si esto se reintenta (p. ej. tras una excepción de red de la que no se sabe
+        # si la consola llegó a procesar la primera llamada) sin que la revert-ada de abajo
+        # llegue a ejecutarse, la consola ya tiene un aviso con este id y no manda otro — el
+        # manager no se entera dos veces del mismo ticket.
+        notify("manager", prompt, key=f"despacho-{ticket.id}-{kind}")
+    except Exception as notify_exc:
+        log(f"no se pudo avisar al manager de #{ticket.id}: {notify_exc}")
+        try:
+            ado.update(ticket.id, {"System.Tags": original})
+        except Exception as revert_exc:
+            # Si esto también falla, el ticket se queda en «updated» sin que nadie lo sepa
+            # a menos que se diga aquí: ni se avisó al manager ni volverá a ser candidato.
+            log(f"TAMPOCO se pudo devolver la etiqueta de #{ticket.id} a «{original}»: "
+                f"{revert_exc}. Se queda en «{updated}»: revísalo a mano.")
+        else:
+            log(f"#{ticket.id} vuelve a «{original}»")
+        raise notify_exc
     log(f"manager avisado: #{ticket.id} ({kind}) «{ticket.title}»")
     return 0
 
