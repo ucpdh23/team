@@ -16,7 +16,9 @@ pone en `PYTHONPATH` al ejecutar cada script.
 | `notify(to, content)` | Deja un aviso para un agente. Lo recoge su extensión en ≤15 s y se lo inyecta, arrancándole turno aunque esté ocioso. Si está apagado, espera. |
 | `log(...)` | Como `print`, con hora. La salida se guarda entera y se ve en la pestaña Cron. |
 | `state` | Memoria del job entre ejecuciones (`state["ultimo_aviso"] = [...]`). Vive en la base de datos de la consola, porque el directorio de scripts está montado en solo lectura. |
+| `agents()` | Estado de cada agente conectado (`{nombre: {"status", "since_s", ...}}`, con `status` = `idle`/`thinking`/`tool`/`compacting`), leído del hub de pi-link. Un agente apagado no aparece; si el hub no responde, lanza `ConsoleError`. |
 | `ado.query(wiql)` / `ado.work_item(id)` | Consulta a Azure DevOps con el PAT (`CONSOLE_ADO_PAT`) y la organización ya resueltos. Por debajo es `az boards`, la misma sintaxis que usan los agentes. |
+| `ado.update(id, fields)` | Cambia campos de un work item (`{"System.Tags": "a; b"}`). Las etiquetas se sustituyen enteras: parte de `item.tags` y manda la lista completa. |
 | `job_name`, `run_id` | Qué job y qué ejecución son ésta. |
 
 ## El ejemplo que motivó todo esto
@@ -51,6 +53,9 @@ log("avisado el manager de", len(ids), "tickets")
 El manager lo recibe como un mensaje con encabezado propio
 (`[Consola del equipo · aviso programado "…"]`) y, si estaba ocioso, arranca turno: nadie tiene
 que estar mirando la pantalla a las ocho de la tarde.
+
+Más ejemplos, listos para copiar a `tmp/scripts/`, en
+[`docs/cron-scripts/`](../../docs/cron-scripts/).
 
 ## Reglas de la casa
 
