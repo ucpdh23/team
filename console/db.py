@@ -21,7 +21,7 @@ from pathlib import Path
 
 # Se sube cuando cambia el esquema; `migrate()` aplica lo que falte. PRAGMA user_version viene
 # en el propio fichero, así que no hace falta una tabla de versiones.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -92,6 +92,18 @@ CREATE TABLE IF NOT EXISTS cron_state (
   value TEXT NOT NULL,
   PRIMARY KEY (job, key)
 );
+
+-- Avisos de un agente PARA el humano (ver console/human_notify.py) — la dirección contraria a
+-- `inbox`. Un agente los crea (hoy, el manager, vía su tool `notify_human`) y el navegador los
+-- sondea para convertirlos en una notificación del sistema operativo. No hay ack ni
+-- reentrega: si se pierde un toast del navegador no se reintenta, a diferencia de `inbox`.
+CREATE TABLE IF NOT EXISTS human_notices (
+  id         TEXT PRIMARY KEY,
+  agent      TEXT NOT NULL,      -- quién lo pide
+  content    TEXT NOT NULL,
+  created_ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS human_notices_ts ON human_notices(created_ts);
 """
 
 

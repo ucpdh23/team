@@ -25,6 +25,7 @@ from .db import Database
 from .docker_api import DockerAPI
 from .events import MAX_EVENTS_PER_REQUEST, EventStore
 from .cron import CronManager
+from .human_notify import HumanNotify
 from .inbox import Inbox
 from .system import SystemInfo
 from .terminal import TerminalBridge
@@ -63,7 +64,7 @@ def _path_parts(path: str, prefix: str) -> list[str]:
 
 def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                   system: SystemInfo, inbox: Inbox, cron: CronManager, tmux: TmuxView,
-                  terminal: TerminalBridge):
+                  terminal: TerminalBridge, human: HumanNotify):
     class Handler(BaseHTTPRequestHandler):
         # Silencia el log por defecto (una línea por request) para no ensuciar la salida del
         # contenedor, que es donde se ven los avisos que sí importan.
@@ -194,6 +195,12 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 )
                 return
 
+            if parsed.path == "/api/human-notify":
+                self._json_or_error(
+                    lambda: human.pending(since=_int_param(query, "since")), extra_headers
+                )
+                return
+
             if parsed.path == "/api/events/graph":
                 self._json_or_error(lambda: events.graph(
                     window_ms=_int_param(query, "window_ms") or 3_600_000,
@@ -292,7 +299,7 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 return
 
             if parsed.path not in ("/api/events", "/api/link/send", "/api/inbox/take",
-                                   "/api/cron/jobs", "/api/cron/state") \
+                                   "/api/human-notify", "/api/cron/jobs", "/api/cron/state") \
                     and not (len(cron_run_now) == 1 and parsed.path.startswith("/api/cron/jobs/")):
                 self.send_error(404, "Not found")
                 return
@@ -304,6 +311,19 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 payload = json.loads(body.decode("utf-8"))
             except (ValueError, UnicodeDecodeError) as exc:
                 self._send_json({"error": f"json inválido: {exc}"}, status=400)
+                return
+
+            if parsed.path == "/api/human-notify":
+                if not isinstance(payload, dict):
+                    self._send_json({"error": "se espera un objeto {agent, content}"},
+                                    status=400)
+                    return
+                try:
+                    result = human.create(payload.get("agent", ""), payload.get("content", ""))
+                except ValueError as exc:
+                    self._send_json({"error": str(exc)}, status=400)
+                    return
+                self._send_json(result, status=202, extra_headers=extra_headers)
                 return
 
             if parsed.path == "/api/link/send":
@@ -488,7 +508,7 @@ def _configure_ado_defaults() -> None:
         print(f"[console] aviso: no se pudo configurar az devops por defecto: {exc}")
 
 
-def _start_retention(events: EventStore, inbox: Inbox) -> None:
+def _start_retention(events: EventStore, inbox: Inbox, human: HumanNotify) -> None:
     """Purga al arrancar y luego a diario. Hilo demonio: no retiene el cierre del proceso.
 
     Los avisos caducados se miran cada hora y no una vez al día: su TTL se cuenta en horas.
@@ -505,6 +525,7 @@ def _start_retention(events: EventStore, inbox: Inbox) -> None:
                 expired = inbox.purge()
                 if expired:
                     print(f"[console] {expired} aviso(s) caducados sin entregar")
+                human.purge()
             except Exception as exc:  # noqa: BLE001 — la purga no puede tumbar el servidor
                 print(f"[console] aviso: falló la purga: {exc}")
             ticks += 1
@@ -524,14 +545,15 @@ def serve(config: Config) -> int:
     db = Database(config.data_dir / "console.db")
     events = EventStore(db, retention_days=config.event_retention_days)
     inbox = Inbox(db, events, ttl_hours=config.inbox_ttl_hours)
-    _start_retention(events, inbox)
+    human = HumanNotify(db)
+    _start_retention(events, inbox, human)
     system = SystemInfo(docker, config.container_prefix)
     cron = CronManager(db, events, inbox, config)
     cron.start()
     tmux = TmuxView(docker, system)
     terminal = TerminalBridge(docker, system, config.token)
 
-    handler = _make_handler(config, docker, events, system, inbox, cron, tmux, terminal)
+    handler = _make_handler(config, docker, events, system, inbox, cron, tmux, terminal, human)
     try:
         httpd = ThreadingHTTPServer(("0.0.0.0", config.port), handler)
     except OSError as exc:
