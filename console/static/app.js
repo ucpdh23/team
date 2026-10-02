@@ -53,5 +53,9 @@ fetch("/api/health")
   .then((h) => {
     const name = h.project || h.prefix;
     if (name) document.getElementById("cluster").textContent = `· consola · ${name}`;
+    // El título de la pestaña es el CONTAINER_PREFIX, no el nombre de proyecto de Compose: es
+    // el que de verdad elige y controla quien levanta el cluster (ver README, "Publicando
+    // ella, y varios clusters en una máquina").
+    if (h.prefix) document.title = `${h.prefix} · consola`;
   })
   .catch(() => {});
