@@ -31,6 +31,7 @@ MAX_LIMIT = 1000
 # perderse por no estar aquí), pero documenta lo que existe.
 TYPE_SENT = "link.message.sent"
 TYPE_RECEIVED = "link.message.received"
+TYPE_SKILL_USED = "skill.used"  # ver agents/_shared/pi/extensions/team-console
 
 
 def now_ms() -> int:

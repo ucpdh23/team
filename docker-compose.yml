@@ -45,6 +45,13 @@ services:
       - manager-pi-home:/root/.pi/agent
       - ./agents/manager/AGENTS.md:/root/.pi/agent/AGENTS.md
       - ./agents/manager/pi/extensions:/root/.pi/agent/extensions
+      # Skills de este rol: pi los descubre solo en ~/.pi/agent/skills, sin configurar
+      # nada — incluidos los que cree por su cuenta para este rol ("pi can create skills").
+      - ./agents/manager/pi/skills:/root/.pi/agent/skills
+      # Skills promocionados a todo el cluster: la otra ruta global que pi ya mira sola
+      # (~/.agents/skills), de solo lectura — promocionar uno es moverlo aquí con
+      # `git mv` desde el pi/skills de un rol; todos los roles lo ven sin recrear nada.
+      - ./agents/_shared/pi/skills:/root/.agents/skills:ro
       # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
       # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
       # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
@@ -111,6 +118,13 @@ services:
       # variantes.
       - ./agents/backend/AGENTS.${BACKEND_STACK:-java}.md:/root/.pi/agent/AGENTS.md
       - ./agents/backend/pi/extensions:/root/.pi/agent/extensions
+      # Skills de este rol: pi los descubre solo en ~/.pi/agent/skills, sin configurar
+      # nada — incluidos los que cree por su cuenta para este rol ("pi can create skills").
+      - ./agents/backend/pi/skills:/root/.pi/agent/skills
+      # Skills promocionados a todo el cluster: la otra ruta global que pi ya mira sola
+      # (~/.agents/skills), de solo lectura — promocionar uno es moverlo aquí con
+      # `git mv` desde el pi/skills de un rol; todos los roles lo ven sin recrear nada.
+      - ./agents/_shared/pi/skills:/root/.agents/skills:ro
       # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
       # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
       # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
@@ -178,6 +192,13 @@ services:
       - frontend-pi-home:/root/.pi/agent
       - ./agents/frontend/AGENTS.${FRONTEND_STACK:-angular}.md:/root/.pi/agent/AGENTS.md
       - ./agents/frontend/pi/extensions:/root/.pi/agent/extensions
+      # Skills de este rol: pi los descubre solo en ~/.pi/agent/skills, sin configurar
+      # nada — incluidos los que cree por su cuenta para este rol ("pi can create skills").
+      - ./agents/frontend/pi/skills:/root/.pi/agent/skills
+      # Skills promocionados a todo el cluster: la otra ruta global que pi ya mira sola
+      # (~/.agents/skills), de solo lectura — promocionar uno es moverlo aquí con
+      # `git mv` desde el pi/skills de un rol; todos los roles lo ven sin recrear nada.
+      - ./agents/_shared/pi/skills:/root/.agents/skills:ro
       # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
       # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
       # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
@@ -227,6 +248,13 @@ services:
       - devops-pi-home:/root/.pi/agent
       - ./agents/devops/AGENTS.md:/root/.pi/agent/AGENTS.md
       - ./agents/devops/pi/extensions:/root/.pi/agent/extensions
+      # Skills de este rol: pi los descubre solo en ~/.pi/agent/skills, sin configurar
+      # nada — incluidos los que cree por su cuenta para este rol ("pi can create skills").
+      - ./agents/devops/pi/skills:/root/.pi/agent/skills
+      # Skills promocionados a todo el cluster: la otra ruta global que pi ya mira sola
+      # (~/.agents/skills), de solo lectura — promocionar uno es moverlo aquí con
+      # `git mv` desde el pi/skills de un rol; todos los roles lo ven sin recrear nada.
+      - ./agents/_shared/pi/skills:/root/.agents/skills:ro
       # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
       # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
       # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la
@@ -275,6 +303,13 @@ services:
       - cypress-pi-home:/root/.pi/agent
       - ./agents/cypress/AGENTS.md:/root/.pi/agent/AGENTS.md
       - ./agents/cypress/pi/extensions:/root/.pi/agent/extensions
+      # Skills de este rol: pi los descubre solo en ~/.pi/agent/skills, sin configurar
+      # nada — incluidos los que cree por su cuenta para este rol ("pi can create skills").
+      - ./agents/cypress/pi/skills:/root/.pi/agent/skills
+      # Skills promocionados a todo el cluster: la otra ruta global que pi ya mira sola
+      # (~/.agents/skills), de solo lectura — promocionar uno es moverlo aquí con
+      # `git mv` desde el pi/skills de un rol; todos los roles lo ven sin recrear nada.
+      - ./agents/_shared/pi/skills:/root/.agents/skills:ro
       # Extensión común a los 5 roles (una sola copia en el repositorio): se monta
       # DENTRO del directorio de extensiones de arriba. Docker aplica los binds por
       # profundidad de ruta, así que el de abajo no oculta al de arriba, y pi la

@@ -113,18 +113,21 @@ backend's headless Eclipse (`jdtbridge`) is wired up — lives in
 │   └── tests/                   # browser test of the console (reuses the cypress image)
 ├── agents/
 │   ├── _shared/
-│   │   └── pi/extensions/
-│   │       └── team-console/   # one extension for the 5 roles: reports who talks to whom and
-│   │                            # picks up the console's scheduled notices
+│   │   └── pi/
+│   │       ├── extensions/
+│   │       │   └── team-console/  # one extension for the 5 roles: reports who talks to whom,
+│   │       │                       # picks up scheduled notices, reports skill use
+│   │       └── skills/           # skills promoted cluster-wide — see "Team skills" below
 │   └── <role>/
 │       ├── AGENTS.md           # team context, mounted at ~/.pi/agent/AGENTS.md (global for pi)
 │       │                        # backend/frontend have one per stack instead:
 │       │                        # AGENTS.java.md, AGENTS.kotlin.md, AGENTS.python.md /
 │       │                        # AGENTS.angular.md, AGENTS.nextjs.md — see below
 │       └── pi/
-│           └── extensions/     # mounted at ~/.pi/agent/extensions in the container — global
-│                                # pi extensions specific to this role (see "Plugins/packages
-│                                # per agent" below)
+│           ├── extensions/     # mounted at ~/.pi/agent/extensions in the container — global
+│           │                    # pi extensions specific to this role (see "Plugins/packages
+│           │                    # per agent" below)
+│           └── skills/         # this role's own skills — see "Team skills" below
 └── tmp/                         # not versioned (see .gitignore)
     └── scripts/                 # the cron's scripts: yours, not this project's — the folder
                                  # is kept in the checkout, its contents are not
@@ -545,6 +548,31 @@ looks like it carries text, so a future emitter cannot smuggle a conversation in
 
 If the console is down the agents do not notice: the extension queues events with a bounded
 buffer, a short timeout and backoff, and delivers them when it comes back.
+
+### Team skills
+
+`pi` can create [skills](https://agentskills.io/specification) for itself on the fly, and
+discovers them from two places with no configuration needed, each mounted from its own
+directory so they stay versioned in this repo:
+
+| Where it lives | Mounted at | Who sees it |
+|---|---|---|
+| `agents/<role>/pi/skills/` | `~/.pi/agent/skills` | Only that role — where a skill is born, scoped to whoever identified the need for it. |
+| `agents/_shared/pi/skills/` | `~/.agents/skills` (read-only) | All five roles in this cluster. |
+
+Promoting a skill from one to the other is a plain `git mv` — nothing to restart: both paths
+are live bind mounts, so a skill that lands in `_shared` becomes visible to the rest of the
+team the moment the directory exists, picked up on that agent's next `/reload` (or its next
+restart). Sharing a skill with *another* `team` cluster on the same machine is the same idea
+one level up — copy it into whatever directory that cluster's own `_shared/pi/skills/` points
+at — not something this repo automates on its own.
+
+Every use of a skill — the name only, nothing of what the agent does with it — becomes a
+`skill.used` event through the same `team-console` extension and the same `/api/events`
+pipeline described above, so it shows up in **Actividad** like any other traffic
+(`GET /api/events?type=skill.` to see just these). Caught two ways: `/skill:name` typed
+explicitly, and `pi` loading a `SKILL.md` on its own initiative (progressive disclosure) —
+either counts.
 
 ### Scheduled scripts (Cron tab)
 

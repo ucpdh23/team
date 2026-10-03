@@ -10,10 +10,17 @@
  *                            destinatario exacto y el instante real del envío)
  *   - link.message.received  cuando pi-link entrega mensajes a este agente (aporta la
  *                            latencia de entrega y cubre a quien no tenga esta extensión)
+ *   - skill.used             cuando este agente usa un skill, explícito (`/skill:nombre`) o
+ *                            por iniciativa propia de pi (progressive disclosure: lee el
+ *                            SKILL.md de uno de los dos sitios donde viven los skills de
+ *                            equipo — ver docker-compose.yml, montajes sobre
+ *                            ~/.pi/agent/skills y ~/.agents/skills). Solo el nombre, nada del
+ *                            contenido del skill ni de lo que el agente haga con él.
  *
- * Qué NO emite: el texto de los mensajes. Solo quién, a quién y cuánto ocupaba. Por la malla
- * viajan fragmentos de código y rutas de los proyectos en los que trabajan los agentes, y
- * nada de eso tiene por qué acabar en una base de datos de observabilidad.
+ * Qué NO emite: el texto de los mensajes, ni el contenido de ningún skill. Solo quién, a
+ * quién/qué y cuánto ocupaba. Por la malla viajan fragmentos de código y rutas de los
+ * proyectos en los que trabajan los agentes, y nada de eso tiene por qué acabar en una base
+ * de datos de observabilidad.
  *
  * Y en la otra dirección: recoge de la consola los avisos programados (el cron) dirigidos a
  * este agente y se los entrega. La consola no se registra en la malla pi-link —enviar por ahí
@@ -50,6 +57,19 @@ type Event = {
   peer: string | null;
   payload: Record<string, unknown>;
 };
+
+// Las dos rutas globales donde pi busca skills (ver skills.md): una propia del rol
+// (./agents/<rol>/pi/skills, montaje directo) y otra compartida del cluster
+// (./agents/_shared/pi/skills, de solo lectura). Fijas, porque HOME es siempre /root en
+// estas imágenes — ver docker-compose.yml.
+const SKILL_ROOTS = ["/root/.pi/agent/skills/", "/root/.agents/skills/"];
+
+/** Nombre del skill si `path` es el `SKILL.md` de uno de los dos sitios de arriba; si no, null. */
+function skillNameFromPath(path: string): string | null {
+  if (!SKILL_ROOTS.some((root) => path.startsWith(root))) return null;
+  const match = path.match(/\/([^/]+)\/SKILL\.md$/);
+  return match ? match[1] : null;
+}
 
 export default function (pi: ExtensionAPI) {
   const baseUrl = (process.env.CONSOLE_URL ?? "").trim().replace(/\/+$/, "");
@@ -223,12 +243,30 @@ export default function (pi: ExtensionAPI) {
   // ── Eventos de pi ─────────────────────────────────────────────────────────
 
   pi.on("tool_execution_start", async (event) => {
-    if (event.toolName !== "link_send") return;
-    const args = (event.args ?? {}) as { to?: unknown; message?: unknown };
-    pending.set(event.toolCallId, {
-      to: String(args.to ?? ""),
-      chars: String(args.message ?? "").length,
-    });
+    if (event.toolName === "link_send") {
+      const args = (event.args ?? {}) as { to?: unknown; message?: unknown };
+      pending.set(event.toolCallId, {
+        to: String(args.to ?? ""),
+        chars: String(args.message ?? "").length,
+      });
+      return;
+    }
+
+    // Skill cargado por iniciativa propia de pi: no se asume qué campo de `args` lleva la
+    // ruta (cada tool de lectura podría llamarlo distinto), se busca cualquier valor que
+    // apunte a un SKILL.md de los nuestros.
+    const path = Object.values(event.args ?? {}).find(
+      (v): v is string => typeof v === "string" && v.endsWith("/SKILL.md"),
+    );
+    const skill = path ? skillNameFromPath(path) : null;
+    if (skill) enqueue("skill.used", null, { skill, via: "autodiscovery" });
+  });
+
+  pi.on("input", async (event) => {
+    // Skill invocado a propósito, antes de que pi expanda `/skill:nombre` a su contenido.
+    const match = event.text.match(/^\/skill:(\S+)/);
+    if (match) enqueue("skill.used", null, { skill: match[1], via: "command" });
+    return { action: "continue" };
   });
 
   pi.on("tool_execution_end", async (event) => {
