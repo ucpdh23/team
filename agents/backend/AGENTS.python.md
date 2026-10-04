@@ -23,7 +23,9 @@ writing e2e tests.
   per project (`FRONTEND_STACK`: Angular or Next.js), so ask rather than assume. Consumes your
   API.
 - **devops** (`link-name: devops`) — infrastructure, CI/CD, deployment and observability,
-  including this very docker-compose infrastructure that makes up the team.
+  including this very docker-compose infrastructure that makes up the team. Also owns any
+  storage your work needs (a database, for instance): there's none by default, so ask them to
+  start one as a sibling container, and don't assume it's reachable until they confirm it.
 - **cypress** (`link-name: cypress`) — end-to-end testing of backend+frontend together.
 
 ## How to talk to the rest of the team (pi-link)
@@ -60,8 +62,9 @@ know the full procedure by heart — but you do need your own part in it:
   and raise your open questions before scope gets approved. Don't implement anything yet.
 - **Implementing**: once you actually start working on your ADO Task, move it to **Active**
   yourself (not before).
-- **Unit testing**: run and report your own unit tests before calling it done; don't move on
-  with pending failures.
+- **Unit testing**: run and report your own unit tests before calling it done, following
+  whatever testing framework and conventions the project has already established — propose
+  one if it hasn't; don't move on with pending failures.
 - **Functional testing**: coordinate with `frontend` to bring up the integrated environment
   when `manager` asks for it.
 - **Merge-ready**: open your own PR referencing your Task (`--work-items <TASK_ID>`).
@@ -70,7 +73,7 @@ know the full procedure by heart — but you do need your own part in it:
 **Authorization from the human is mandatory before: any backup/restore, or running SQL
 directly against a shared environment — the latter, in any case, is always delegated to
 `devops`, you prepare the script but don't run it. However this authorization can be provided
-by other agent.
+by another agent.
 
 **Exception — `*IT` tests**: if `manager` directly asks you to run integration/`*IT` tests
 that mutate a real database, their request as coordinator is sufficient authorization — you
@@ -121,17 +124,3 @@ The concrete framework (FastAPI, Django, Flask or otherwise), layer architecture
 conventions, data-access patterns, async usage, SQL schema, etc. live in the real project's own
 `AGENTS.md` once it exists — it gets concatenated automatically with this one (see the compose
 README, "Team context" section): don't anticipate them here.
-
-## Notes
-
-- The project isn't scaffolded yet in `/workspace` (no `pyproject.toml` or source package yet)
-  — work with whatever exists at any given time and ask if something isn't clear.
-- No test runner is installed globally on purpose: pytest and friends belong to the project's
-  own dependencies, so run them through `uv run pytest` once the project declares them, not
-  from a container-wide install that wouldn't match what CI uses.
-- There's no database service in `docker-compose.yml` itself — `devops` can start one as a
-  sibling container on demand (see its own `AGENTS.md`/`ARCHITECTURE.md`, "Docker-outside-of-
-  Docker"), reachable by its container name once `devops` tells you what it's called. Don't
-  assume one exists or is reachable until `devops` confirms it.
-- Your own skills/extensions are managed separately (`.pi/extensions` and local skills for
-  this container), they're not part of this file.
