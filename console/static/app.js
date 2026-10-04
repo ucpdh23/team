@@ -16,6 +16,13 @@ const DEFAULT_VIEW = "sistema";
 
 const container = document.getElementById("view");
 let current = null;
+// Se incrementa en cada render(): si dos navegaciones se solapan (clic rápido entre
+// pestañas), la vieja puede seguir en vuelo —esperando su propio fetch— cuando la nueva ya
+// ha pintado la suya. Sin esto, cuando la vieja por fin termina (bien o mal), pisa lo que la
+// nueva ya puso en pantalla. Cada render() se queda con el valor que tenía al empezar; si ya
+// no coincide con el actual cuando retoma tras un `await`, significa que otra navegación le
+// tomó el relevo, y no tiene nada que tocar.
+let renderToken = 0;
 
 function viewFromHash() {
   const name = (location.hash || "").replace(/^#\/?/, "").split("?")[0];
@@ -25,6 +32,7 @@ function viewFromHash() {
 async function render() {
   const name = viewFromHash();
   if (current && current.name === name) return;
+  const token = ++renderToken;
 
   if (current?.module?.unmount) {
     try { current.module.unmount(); } catch (e) { console.error("unmount", e); }
@@ -35,9 +43,14 @@ async function render() {
 
   try {
     const module = await VIEWS[name]();
+    if (token !== renderToken) return;   // otra navegación ya tomó el relevo
     current = { name, module };
     await module.mount(container);
   } catch (e) {
+    if (token !== renderToken) {
+      console.debug(`[consola] «${name}» falló tras dejar de ser la vista actual, se ignora:`, e);
+      return;
+    }
     console.error(e);
     container.innerHTML = `<p class="meta error">No se pudo cargar la vista «${name}»: ${e}</p>`;
   }
