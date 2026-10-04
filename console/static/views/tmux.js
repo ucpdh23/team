@@ -9,6 +9,15 @@
 // tiene CONSOLE_TOKEN (ver console/terminal.py); si no, el botón sale desactivado con el
 // motivo. `docker exec -it <contenedor> tmux attach -t pi` (botón «attach») sigue ahí.
 //
+// Atajos: Alt+B/M/F/C/D abren el agente correspondiente (una letra por rol); la misma
+// combinación otra vez, con ese agente ya abierto, lo pasa a escritura. Se usa `event.code`
+// (posición física de la tecla) y no `event.key`, para no depender de la distribución de
+// teclado. `Alt` y no `Ctrl`, porque Ctrl+F/Ctrl+D/Ctrl+C ya son de buscar, marcar y copiar en
+// el navegador — interceptarlas ahí sería tocar algo que el usuario espera que siga
+// funcionando siempre. Se desactivan del todo en cuanto la terminal está de verdad en
+// escritura: a partir de ahí cada tecla es del agente, no de la página, ni siquiera la misma
+// combinación (si no, un Alt+B que el agente use para algo propio llegaría también aquí).
+//
 // El panel mide 220×50 caracteres, que no caben legibles en una celda de mosaico: se dibuja a
 // tamaño real y se escala con CSS, de forma que se conserva la composición (bordes, columnas)
 // aunque el texto quede diminuto. Para leer, se hace clic y se abre a tamaño completo.
@@ -18,6 +27,10 @@ import { openTerminal } from "/terminal.js";
 const REFRESH_MS = 5000;
 const LINES = 46;
 const PANE_COLS = 220;
+
+// Una letra por rol — ver la nota de arriba sobre por qué Alt y no Ctrl.
+const ALT_SHORTCUT = { KeyB: "backend", KeyM: "manager", KeyF: "frontend", KeyC: "cypress",
+                       KeyD: "devops" };
 
 let root = null, timer = null, agents = [], expanded = null;
 let interactive = { enabled: false, reason: "" };
@@ -70,7 +83,18 @@ export function unmount() {
 
 function onKey(event) {
   // Con la terminal abierta, Esc es del agente (pi lo usa): solo se cierra con los botones.
-  if (event.key === "Escape" && !terminal) closeModal();
+  if (event.key === "Escape") {
+    if (!terminal) closeModal();
+    return;
+  }
+
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  const agent = ALT_SHORTCUT[event.code];
+  // En escritura de verdad la tecla es del agente, no de la página — ni siquiera esta misma.
+  if (!agent || terminal) return;
+  event.preventDefault();
+  if (expanded === agent) enterWrite();
+  else openModal(agent);
 }
 
 async function loadAgents() {
@@ -83,7 +107,7 @@ async function loadAgents() {
 
   const up = agents.filter((a) => a.state === "running").length;
   root.querySelector("#tmux-meta").textContent = agents.length
-    ? `${up}/${agents.length} agentes en marcha · mosaico en solo lectura, refresco cada ${REFRESH_MS / 1000} s · haz clic en uno para ampliarlo`
+    ? `${up}/${agents.length} agentes en marcha · mosaico en solo lectura, refresco cada ${REFRESH_MS / 1000} s · haz clic en uno para ampliarlo (Alt+B/M/F/C/D, otra vez para escribir)`
     : "No se ve ningún agente del equipo.";
 
   root.querySelector("#tmux-grid").innerHTML = agents.map((a) => `
