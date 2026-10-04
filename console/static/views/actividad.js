@@ -293,11 +293,15 @@ async function poll() {
     const data = await (await fetch(url)).json();
     if (!root) return;
     cursor = data.cursor;
-    const fresh = (data.events || []).filter((e) => e.type.startsWith("link.message"));
-    if (!fresh.length) return;
+    const events = data.events || [];
+    // El grafo solo entiende pares emisor→receptor: un skill.used, sin `peer`, no tiene
+    // arista que encender. La lista sí lo quiere — ver loadList/renderList.
+    const messages = events.filter((e) => e.type.startsWith("link.message"));
+    const forList = events.filter((e) => e.type.startsWith("link.message") || e.type.startsWith("skill."));
+    if (!forList.length) return;
 
     let needsRebuild = false;
-    for (const event of fresh) {
+    for (const event of messages) {
       const [from, to] = direction(event);
       if (!from || !to) continue;
       recent.push({ from, to, ts: Date.now() });   // reloj local: es lo que anima
@@ -305,7 +309,7 @@ async function poll() {
     }
     if (recent.length > MAX_RECENT) recent = recent.slice(-MAX_RECENT);
 
-    prependToList(fresh);
+    prependToList(forList);
     // Un par que todavía no tenía arista (primer mensaje entre esos dos): hay que redibujar
     // para que el brillo tenga por dónde correr.
     if (needsRebuild) buildGraph();
@@ -335,9 +339,14 @@ async function loadStatus() {
 
 async function loadList() {
   try {
-    const data = await (await fetch(`/api/events?type=link.message&limit=${LIST_MAX * 2}`)).json();
+    // Dos peticiones, no una: "link.message" y "skill." no comparten prefijo, y type_prefix
+    // de la API solo casa uno a la vez.
+    const [messages, skills] = await Promise.all([
+      fetch(`/api/events?type=link.message&limit=${LIST_MAX * 2}`).then((r) => r.json()),
+      fetch(`/api/events?type=skill.&limit=${LIST_MAX}`).then((r) => r.json()),
+    ]);
     if (!root) return;
-    listItems = data.events || [];
+    listItems = [...(messages.events || []), ...(skills.events || [])];
     renderList();
   } catch (_) { /* la lista se rellenará con el sondeo */ }
 }
@@ -390,31 +399,58 @@ function mergeMessages(events) {
   return rows.reverse();
 }
 
+const escapeHtml = (text) =>
+  String(text).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+/** Un skill.used es una fila suelta, sin pareja que buscar: a diferencia de un mensaje, no
+ * tiene envío/entrega que casar — se muestra tal cual llega. */
+function skillRows(events) {
+  return events
+    .filter((e) => e.type === "skill.used")
+    .map((e) => ({ kind: "skill", id: e.id, ts: e.ts, agent: e.agent,
+                  skill: e.payload?.skill ?? "?" }));
+}
+
+function messageHtml(row) {
+  const time = new Date(row.ts).toLocaleTimeString("es-ES");
+  const delivery = row.failed
+    ? '<span class="tag bad">no entregado</span>'
+    : row.delivered_ms != null
+      ? `<span class="tag" title="${row.orphan ? "entrega sin envío registrado" : "tiempo hasta la entrega"}">✓${
+          row.orphan ? "" : " " + (row.delivered_ms < 1000 ? row.delivered_ms + " ms" : (row.delivered_ms / 1000).toFixed(1) + " s")}</span>`
+      : "";
+  return `<li class="${row.failed ? "failed" : ""}">
+    <span class="mono dim">${time}</span>
+    <span class="dot" style="background:${colorFor(row.from)}"></span>${row.from}
+    <span class="arrow">→</span>${row.to}
+    <span class="dim">${row.chars ? row.chars + " car." : ""}</span>
+    ${delivery}
+  </li>`;
+}
+
+function skillHtml(row) {
+  const time = new Date(row.ts).toLocaleTimeString("es-ES");
+  return `<li>
+    <span class="mono dim">${time}</span>
+    <span class="dot" style="background:${colorFor(row.agent)}"></span>${row.agent}
+    <span class="dim">usa el skill</span>
+    <span class="tag">${escapeHtml(row.skill)}</span>
+  </li>`;
+}
+
 function renderList() {
   const list = root.querySelector("#act-list");
-  const rows = mergeMessages(listItems).slice(0, LIST_MAX);
+  const messages = mergeMessages(listItems.filter((e) => e.type.startsWith("link.message")))
+    .map((row) => ({ kind: "message", ...row }));
+  const skills = skillRows(listItems.filter((e) => e.type === "skill.used"));
+  const rows = [...messages, ...skills].sort((a, b) => b.ts - a.ts).slice(0, LIST_MAX);
   if (!rows.length) {
     list.innerHTML = '<li class="meta">Sin mensajes registrados todavía.</li>';
     root.querySelector("#act-meta").textContent =
       "Sin mensajes todavía · se guarda quién y cuándo, nunca el texto";
     return;
   }
-  list.innerHTML = rows.map((row) => {
-    const time = new Date(row.ts).toLocaleTimeString("es-ES");
-    const delivery = row.failed
-      ? '<span class="tag bad">no entregado</span>'
-      : row.delivered_ms != null
-        ? `<span class="tag" title="${row.orphan ? "entrega sin envío registrado" : "tiempo hasta la entrega"}">✓${
-            row.orphan ? "" : " " + (row.delivered_ms < 1000 ? row.delivered_ms + " ms" : (row.delivered_ms / 1000).toFixed(1) + " s")}</span>`
-        : "";
-    return `<li class="${row.failed ? "failed" : ""}">
-      <span class="mono dim">${time}</span>
-      <span class="dot" style="background:${colorFor(row.from)}"></span>${row.from}
-      <span class="arrow">→</span>${row.to}
-      <span class="dim">${row.chars ? row.chars + " car." : ""}</span>
-      ${delivery}
-    </li>`;
-  }).join("");
+  list.innerHTML = rows.map((row) => row.kind === "skill" ? skillHtml(row) : messageHtml(row)).join("");
   root.querySelector("#act-meta").textContent =
-    `${rows.length} mensaje(s) recientes · se guarda quién y cuándo, nunca el texto`;
+    `${rows.length} entrada(s) recientes · se guarda quién y cuándo, nunca el texto`;
 }
