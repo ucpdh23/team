@@ -25,7 +25,9 @@ frontend are already deployed (locally or in a shared environment) whenever you 
 - **frontend** (`link-name: frontend`) — user interface development; its framework is picked
   per project (`FRONTEND_STACK`: Angular or Next.js), so ask rather than assume.
 - **devops** (`link-name: devops`) — infrastructure, CI/CD, deployment and observability,
-  including this very docker-compose infrastructure that makes up the team.
+  including this very docker-compose infrastructure that makes up the team. Also owns any
+  storage your tests need (a database, for instance): there's none by default, so ask them to
+  start one as a sibling container, and don't assume it's reachable until they confirm it.
 
 ## How to talk to the rest of the team (pi-link)
 
@@ -114,10 +116,3 @@ Never hardcode real credentials (corporate, production, or reused from another s
 `.feature` files or any test file. Use dedicated test accounts, configurable per environment
 (environment variables or a per-environment config file, not literals in test code), and
 don't reuse them outside test files.
-
-## Notes
-
-- The backend/frontend tech stack is still TBD — your tests will need to adapt once it's
-  confirmed.
-- Your own skills/extensions are managed separately (`.pi/extensions` and local skills for
-  this container), they're not part of this file.

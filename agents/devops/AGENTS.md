@@ -111,14 +111,3 @@ authorization above (it's not a backup/restore, not SQL against a shared environ
 real deployment) — but anything you do *inside* that container afterwards (e.g. running SQL
 against it, resetting its data) is still subject to the same rules once it's holding data
 other roles depend on.
-
-## Notes
-
-- The backend/frontend tech stack is still TBD — coordinate with them before assuming
-  concrete infrastructure requirements per language/framework.
-- Your own infrastructure stack (Terraform, Kubernetes manifests, CI config, etc.) is still
-  TBD too. Once the real project's own `AGENTS.md` exists in `/workspace`, it gets
-  concatenated automatically with this one (see the compose README, "Team context" section):
-  that's where those specifics belong, not here.
-- Your own skills/extensions are managed separately (`.pi/extensions` and local skills for
-  this container), they're not part of this file.

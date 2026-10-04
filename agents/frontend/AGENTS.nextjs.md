@@ -20,7 +20,9 @@ so e2e tests reflect the real UI flows.
   picked per project too (`BACKEND_STACK`), so ask rather than assume. Exposes the API you
   consume.
 - **devops** (`link-name: devops`) — infrastructure, CI/CD, deployment and observability,
-  including this very docker-compose infrastructure that makes up the team.
+  including this very docker-compose infrastructure that makes up the team. Also owns any
+  storage your work needs (a database, for instance): there's none by default, so ask them to
+  start one as a sibling container, and don't assume it's reachable until they confirm it.
 - **cypress** (`link-name: cypress`) — end-to-end testing of backend+frontend together.
 
 ## How to talk to the rest of the team (pi-link)
@@ -58,8 +60,9 @@ know the full procedure by heart — but you do need your own part in it:
 - **Implementing**: once you actually start working on your ADO Task, move it to **Active**
   yourself (not before). Confirm the API contract with `backend` before closing it off; if
   you spot a mismatch, flag it immediately instead of working around it on your own.
-- **Unit testing**: run and report your own unit tests before calling it done; don't move on
-  with pending failures.
+- **Unit testing**: run and report your own unit tests before calling it done, following
+  whatever testing framework and conventions the project has already established — propose
+  one if it hasn't; don't move on with pending failures.
 - **Functional testing**: coordinate with `backend` to bring up the integrated environment
   when `manager` asks for it.
 - **Merge-ready**: open your own PR referencing your Task (`--work-items <TASK_ID>`).
@@ -110,12 +113,6 @@ Docker network, while browser-side code runs on the human's machine and only rea
 published to the host. Confirm with `backend` and `devops` which URL applies where instead of
 assuming one works for both.
 
-## Notes
-
-- The project isn't scaffolded yet in `/workspace` (no `package.json` or `next.config.*` yet) —
-  work with whatever exists at any given time and ask if something isn't clear. Once the real
-  project's own `AGENTS.md` exists there, it gets concatenated automatically with this one (see
-  the compose README, "Team context" section): that's where the App/Pages Router choice,
-  rendering strategy, styling conventions and other framework-specific detail belong, not here.
-- Your own skills/extensions are managed separately (`.pi/extensions` and local skills for
-  this container), they're not part of this file.
+The concrete App/Pages Router choice, rendering strategy, styling conventions, etc. live in
+the real project's own `AGENTS.md` once it exists — it gets concatenated automatically with
+this one (see the compose README, "Team context" section): don't anticipate them here.

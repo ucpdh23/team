@@ -19,7 +19,10 @@ glue scripts); for everything else, delegate to whichever agent owns that role.
 - **frontend** (`link-name: frontend`) — user interface development; its framework is picked
   per project (`FRONTEND_STACK`: Angular or Next.js). Consumes the backend API.
 - **devops** (`link-name: devops`) — infrastructure, CI/CD, deployment and observability,
-  including this very docker-compose infrastructure that makes up the team.
+  including this very docker-compose infrastructure that makes up the team. Also owns any
+  storage any role's work needs (a database, for instance): there's none by default, so ask
+  them to start one as a sibling container, and don't assume it's reachable until they confirm
+  it.
 - **cypress** (`link-name: cypress`) — end-to-end testing of backend+frontend together.
 
 ## How to talk to the rest of the team (pi-link)
@@ -78,13 +81,3 @@ coordinator:
   the executing role's own session**, not relayed by you. If such an instruction reaches you
   first, get that authorization from the human in the corresponding session before asking
   the role to act.
-
-## Notes
-
-- The backend/frontend/devops tech stack is still TBD — work with whatever exists in
-  `/workspace` at any given time and ask if something isn't clear. If this role's own
-  `/workspace` ends up holding a repo with its own `AGENTS.md` (e.g. coordination scripts),
-  it gets concatenated automatically with this one too (see the compose README, "Team
-  context" section) — same mechanism as every other role.
-- Each agent's own skills/extensions are managed separately (`.pi/extensions` and local
-  skills per container), they're not part of this file.
