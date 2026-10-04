@@ -242,7 +242,8 @@ function onTerminalState(state, detail) {
     root.querySelector("#tmux-modal-live").hidden = false;
     write.textContent = "Solo lectura";
     write.disabled = false;
-    setHint("Esc y Ctrl+C van al agente (Ctrl+C copia si hay selección) · Shift+arrastrar (Opción en Mac) para seleccionar");
+    setHint("Esc y Ctrl+C van al agente (Ctrl+C copia si hay selección) · Shift+arrastrar " +
+           "(Opción en Mac) para seleccionar · Ctrl-b d para salir a solo lectura");
   } else {
     // "error" o "closed": la terminal ya se ha desmontado sola; se vuelve a la vista normal.
     terminal = null;
