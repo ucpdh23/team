@@ -39,6 +39,17 @@ if [ -n "${ADO_ORGANIZATION_URL:-}" ] && [ -n "${ADO_PROJECT:-}" ]; then
     >/dev/null 2>&1 || true
 fi
 
+# Scripts locales del rol (agents/<rol>/startup/*.sh, montados en /opt/team-startup): sitio para
+# lo que se pierde al recrear el contenedor —un plugin de Eclipse, otra versión de Java...—.
+# Corren en cada arranque, en orden alfabético y antes de Eclipse y de pi, así que deben ser
+# idempotentes. Un fallo se avisa pero no impide arrancar el contenedor.
+STARTUP_DIR="/opt/team-startup"
+for script in "$STARTUP_DIR"/*.sh; do
+  [ -f "$script" ] || continue
+  echo "[entrypoint] ejecutando script de arranque: $(basename "$script")"
+  bash "$script" || echo "[entrypoint] AVISO: $(basename "$script") terminó con error ($?), se continúa"
+done
+
 # pi corre dentro de una sesión tmux persistente en vez de como proceso en primer plano:
 # así la sesión sigue viva aunque nadie esté conectado, y te enganchas cuando quieras con
 #   docker exec -it <contenedor> tmux attach -t pi

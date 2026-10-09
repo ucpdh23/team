@@ -15,8 +15,9 @@
 // teclado. `Alt` y no `Ctrl`, porque Ctrl+F/Ctrl+D/Ctrl+C ya son de buscar, marcar y copiar en
 // el navegador — interceptarlas ahí sería tocar algo que el usuario espera que siga
 // funcionando siempre. Se desactivan del todo en cuanto la terminal está de verdad en
-// escritura: a partir de ahí cada tecla es del agente, no de la página, ni siquiera la misma
-// combinación (si no, un Alt+B que el agente use para algo propio llegaría también aquí).
+// escritura, con una excepción: el Alt+letra de OTRO agente cambia a él también desde la
+// terminal (esa tecla no llega al agente). La del agente que se está escribiendo sí es suya,
+// para que un Alt+B que pi use para algo propio no se pierda.
 //
 // El panel mide 220×50 caracteres, que no caben legibles en una celda de mosaico: se dibuja a
 // tamaño real y se escala con CSS, de forma que se conserva la composición (bordes, columnas)
@@ -88,13 +89,30 @@ function onKey(event) {
     return;
   }
 
-  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-  const agent = ALT_SHORTCUT[event.code];
-  // En escritura de verdad la tecla es del agente, no de la página — ni siquiera esta misma.
-  if (!agent || terminal) return;
+  const agent = altTarget(event);
+  if (!agent) return;
   event.preventDefault();
   if (expanded === agent) enterWrite();
+  else if (terminal) switchWrite(agent);
   else openModal(agent);
+}
+
+/** Desde la terminal en escritura a la de otro agente, sin parar en solo lectura. */
+function switchWrite(agent) {
+  const info = agents.find((a) => a.agent === agent);
+  if (!info || info.state !== "running") return;
+  leaveWrite();
+  openModal(agent);
+  enterWrite();
+}
+
+/** El agente al que lleva esta pulsación, o null si no es un atajo que deba actuar ahora. En
+ *  escritura solo vale el de otro agente: la tecla del agente actual es suya. */
+function altTarget(event) {
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return null;
+  const agent = ALT_SHORTCUT[event.code];
+  if (!agent || (terminal && agent === expanded)) return null;
+  return agent;
 }
 
 async function loadAgents() {
@@ -220,7 +238,7 @@ function enterWrite() {
   const host = root.querySelector("#tmux-modal-term");
   root.querySelector("#tmux-modal-body").hidden = true;
   host.hidden = false;
-  terminal = openTerminal(host, expanded, onTerminalState);
+  terminal = openTerminal(host, expanded, onTerminalState, (e) => !!altTarget(e));
 }
 
 function leaveWrite(note) {

@@ -48,6 +48,9 @@ services:
       # Skills de este rol: pi los descubre solo en ~/.pi/agent/skills, sin configurar
       # nada — incluidos los que cree por su cuenta para este rol ("pi can create skills").
       - ./agents/manager/pi/skills:/root/.pi/agent/skills
+      # Scripts propios de este rol que corren en cada arranque del contenedor (ver
+      # agents/manager/startup/README.md).
+      - ./agents/manager/startup:/opt/team-startup:ro
       # Skills promocionados a todo el cluster: la otra ruta global que pi ya mira sola
       # (~/.agents/skills), de solo lectura — promocionar uno es moverlo aquí con
       # `git mv` desde el pi/skills de un rol; todos los roles lo ven sin recrear nada.
@@ -121,6 +124,9 @@ services:
       # Skills de este rol: pi los descubre solo en ~/.pi/agent/skills, sin configurar
       # nada — incluidos los que cree por su cuenta para este rol ("pi can create skills").
       - ./agents/backend/pi/skills:/root/.pi/agent/skills
+      # Scripts propios de este rol que corren en cada arranque del contenedor (ver
+      # agents/backend/startup/README.md).
+      - ./agents/backend/startup:/opt/team-startup:ro
       # Skills promocionados a todo el cluster: la otra ruta global que pi ya mira sola
       # (~/.agents/skills), de solo lectura — promocionar uno es moverlo aquí con
       # `git mv` desde el pi/skills de un rol; todos los roles lo ven sin recrear nada.
@@ -195,6 +201,9 @@ services:
       # Skills de este rol: pi los descubre solo en ~/.pi/agent/skills, sin configurar
       # nada — incluidos los que cree por su cuenta para este rol ("pi can create skills").
       - ./agents/frontend/pi/skills:/root/.pi/agent/skills
+      # Scripts propios de este rol que corren en cada arranque del contenedor (ver
+      # agents/frontend/startup/README.md).
+      - ./agents/frontend/startup:/opt/team-startup:ro
       # Skills promocionados a todo el cluster: la otra ruta global que pi ya mira sola
       # (~/.agents/skills), de solo lectura — promocionar uno es moverlo aquí con
       # `git mv` desde el pi/skills de un rol; todos los roles lo ven sin recrear nada.
@@ -251,6 +260,9 @@ services:
       # Skills de este rol: pi los descubre solo en ~/.pi/agent/skills, sin configurar
       # nada — incluidos los que cree por su cuenta para este rol ("pi can create skills").
       - ./agents/devops/pi/skills:/root/.pi/agent/skills
+      # Scripts propios de este rol que corren en cada arranque del contenedor (ver
+      # agents/devops/startup/README.md).
+      - ./agents/devops/startup:/opt/team-startup:ro
       # Skills promocionados a todo el cluster: la otra ruta global que pi ya mira sola
       # (~/.agents/skills), de solo lectura — promocionar uno es moverlo aquí con
       # `git mv` desde el pi/skills de un rol; todos los roles lo ven sin recrear nada.
@@ -306,6 +318,9 @@ services:
       # Skills de este rol: pi los descubre solo en ~/.pi/agent/skills, sin configurar
       # nada — incluidos los que cree por su cuenta para este rol ("pi can create skills").
       - ./agents/cypress/pi/skills:/root/.pi/agent/skills
+      # Scripts propios de este rol que corren en cada arranque del contenedor (ver
+      # agents/cypress/startup/README.md).
+      - ./agents/cypress/startup:/opt/team-startup:ro
       # Skills promocionados a todo el cluster: la otra ruta global que pi ya mira sola
       # (~/.agents/skills), de solo lectura — promocionar uno es moverlo aquí con
       # `git mv` desde el pi/skills de un rol; todos los roles lo ven sin recrear nada.

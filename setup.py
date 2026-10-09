@@ -313,6 +313,50 @@ def cmd_bash(args) -> int:
     return run_docker("exec", "-it", container, "bash")
 
 
+AUTH_PATH = "/root/.pi/agent/auth.json"
+
+
+def cmd_share_auth(args) -> int:
+    """Copia el auth.json de pi del manager al resto de contenedores en marcha, para hacer el
+    login del proveedor una sola vez. Va por tubería (docker exec ... cat | docker exec -i ...)
+    y no por un fichero intermedio, para que la credencial no pase por el disco del host."""
+    source = resolve_container("manager")
+    if source is None:
+        return 1
+    check = subprocess.run(["docker", "exec", source, "test", "-s", AUTH_PATH])
+    if check.returncode != 0:
+        print(
+            f"El manager no tiene {AUTH_PATH}: haz primero /login en su sesión de pi "
+            "(python setup.py --tmux manager).",
+            file=sys.stderr,
+        )
+        return 1
+
+    exit_code = 0
+    for role in ROLES:
+        if role == "manager":
+            continue
+        target = resolve_container(role)
+        if target is None:
+            exit_code = 1
+            continue
+        reader = subprocess.Popen(["docker", "exec", source, "cat", AUTH_PATH], stdout=subprocess.PIPE)
+        writer = subprocess.run(
+            ["docker", "exec", "-i", target, "sh", "-c",
+             f"umask 077 && cat > {AUTH_PATH}"],
+            stdin=reader.stdout,
+        )
+        reader.stdout.close()
+        if reader.wait() != 0 or writer.returncode != 0:
+            print(f"[setup] {role}: no se pudo copiar auth.json.", file=sys.stderr)
+            exit_code = 1
+        else:
+            print(f"[setup] {role}: auth.json copiado desde manager.")
+    if exit_code == 0:
+        print("Si algún agente ya tenía pi abierto y no ve el login, haz /login o reinicia su sesión.")
+    return exit_code
+
+
 def workspace_has_content(container: str) -> bool | None:
     """True/False si se pudo comprobar si /workspace tiene algo dentro; None si docker
     no está disponible o el exec falló (contenedor no arrancado del todo, etc.)."""
@@ -600,6 +644,12 @@ def build_parser() -> argparse.ArgumentParser:
         "admite 'console'.",
     )
     parser.add_argument(
+        "--share-auth",
+        action="store_true",
+        help="Copia el auth.json de pi (login del proveedor) del manager a los otros 4 "
+        "contenedores, que han de estar arrancados. Evita repetir /login en cada uno.",
+    )
+    parser.add_argument(
         "--git-clone",
         action="store_true",
         help="Para cada rol con <ROL>_REPO_URL definido en .env, hace 'git clone $REPO_URL .' "
@@ -670,6 +720,8 @@ def main(argv=None) -> int:
         return cmd_logs(args)
     if args.bash:
         return cmd_bash(args)
+    if args.share_auth:
+        return cmd_share_auth(args)
     if args.git_clone:
         return cmd_git_clone(args)
     if args.console:

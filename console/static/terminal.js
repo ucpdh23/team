@@ -63,10 +63,11 @@ function loadXterm() {
  * Abre la terminal de `agent` dentro de `host`.
  *
  * `onState(estado, detalle)` recibe: "connecting", "live", "error" (con el motivo) y "closed"
- * (con el motivo si lo hay). Devuelve `{ close() }`; llamarlo desmonta la terminal y cierra
+ * (con el motivo si lo hay). `passThrough(evento)`, si se da y devuelve true, hace que xterm
+ * ignore esa tecla y la deje subir al documento (para atajos de la página). Devuelve `{ close() }`; llamarlo desmonta la terminal y cierra
  * la conexión, y no dispara `onState`.
  */
-export function openTerminal(host, agent, onState) {
+export function openTerminal(host, agent, onState, passThrough) {
   let ws = null, term = null, done = false, onResize = null;
 
   const finish = (state, detail) => {
@@ -135,6 +136,8 @@ export function openTerminal(host, agent, onState) {
       // copiar se quita la selección, como en Windows Terminal: si no, el siguiente Ctrl+C
       // volvería a copiar y no habría forma de interrumpir al agente.
       term.attachCustomKeyEventHandler((e) => {
+        // false = xterm no la procesa ni la envía al agente, y el evento sigue su camino.
+        if (passThrough && passThrough(e)) return false;
         if (e.type === "keydown" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey
             && e.key.toLowerCase() === "c" && term.hasSelection()) {
           navigator.clipboard?.writeText(term.getSelection()).catch(() => {});

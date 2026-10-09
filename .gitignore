@@ -14,6 +14,12 @@
 cost-tracking/*/*
 !cost-tracking/*/.gitkeep
 
+# Scripts de arranque propios de cada rol (agents/<rol>/startup/, ver su README.md): son
+# configuración local de cada máquina. Se versionan solo el README y el .gitkeep.
+agents/*/startup/*
+!agents/*/startup/.gitkeep
+!agents/*/startup/README.md
+
 # Cachés de Python
 __pycache__/
 *.pyc
