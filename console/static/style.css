@@ -363,3 +363,31 @@ ul.events li .tag { margin-left: auto; text-transform: none; }
 }
 #wi-list.dragging { outline: 2px dashed var(--accent); outline-offset: 4px; }
 #wi-crumbs { margin: 12px 0 8px; }
+
+.wi-split { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(0, 1.6fr); gap: 16px; align-items: start; }
+.wi-split:has(#wi-preview[hidden]) { grid-template-columns: 1fr; }
+@media (max-width: 900px) { .wi-split { grid-template-columns: 1fr; } }
+.wi-viewer { position: sticky; top: 8px; max-height: calc(100vh - 24px); display: flex; flex-direction: column; min-width: 0; }
+.wi-viewer h2 { word-break: break-all; }
+.wi-tools { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.wi-body { overflow: auto; min-height: 0; flex: 1; }
+.wi-viewer .wi-pre { max-height: none; }
+.wi-viewer.full { position: fixed; inset: 0; z-index: 50; max-height: none; border-radius: 0; margin: 0; }
+.wi-img { max-width: 100%; height: auto; background: repeating-conic-gradient(#1a1e29 0% 25%, #131722 0% 50%) 50% / 16px 16px; }
+.mermaid-box { margin: 12px 0; overflow: auto; text-align: center; }
+.md { line-height: 1.6; font-size: 14px; }
+.md h1, .md h2, .md h3, .md h4 { margin: 1.2em 0 0.5em; line-height: 1.25; }
+.md h1 { font-size: 1.7em; border-bottom: 1px solid #262b38; padding-bottom: 0.3em; }
+.md h2 { font-size: 1.35em; border-bottom: 1px solid #262b38; padding-bottom: 0.25em; text-transform: none; letter-spacing: 0; color: inherit; }
+.md p, .md ul, .md ol, .md pre, .md table, .md blockquote { margin: 0 0 12px; }
+.md a { color: var(--accent); }
+.md code { background: #1a1e29; padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+.md pre { background: #0b0e14; border: 1px solid #1b1f29; border-radius: 6px; padding: 12px; overflow: auto; }
+.md pre code { background: none; padding: 0; }
+.md blockquote { border-left: 3px solid #33405c; padding: 0 12px; color: var(--muted); }
+.md table { border-collapse: collapse; display: block; overflow: auto; }
+.md th, .md td { border: 1px solid #262b38; padding: 6px 10px; }
+.md th { background: #161a24; }
+.md img { max-width: 100%; }
+.md hr { border: 0; border-top: 1px solid #262b38; margin: 16px 0; }
+.md ul.contains-task-list, .md li:has(> input[type=checkbox]) { list-style: none; }

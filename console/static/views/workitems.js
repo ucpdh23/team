@@ -23,12 +23,14 @@ const MARKUP = `
       <input type="file" id="wi-file" multiple hidden />
     </div>
   </div>
-  <section class="panel">
-    <div id="wi-agents" class="segmented"></div>
-    <p id="wi-crumbs" class="meta"></p>
-    <div id="wi-list"></div>
-  </section>
-  <section class="panel" id="wi-preview" hidden></section>
+  <div class="wi-split">
+    <section class="panel">
+      <div id="wi-agents" class="segmented"></div>
+      <p id="wi-crumbs" class="meta"></p>
+      <div id="wi-list"></div>
+    </section>
+    <section class="panel wi-viewer" id="wi-preview" hidden></section>
+  </div>
 `;
 
 export async function mount(container) {
@@ -47,10 +49,14 @@ export async function mount(container) {
     e.preventDefault(); dropZone.classList.remove("dragging");
     upload([...e.dataTransfer.files]);
   });
+  document.addEventListener("keydown", onKey);
   await loadAgents();
 }
 
-export function unmount() { root = null; agents = []; }
+export function unmount() {
+  document.removeEventListener("keydown", onKey);
+  root = null; agents = []; previewEntry = null;
+}
 
 async function getJson(url, options) {
   const r = await fetch(url, options);
@@ -84,7 +90,6 @@ async function go(agent, path) {
   state = { agent, path };
   setHash();
   root.querySelectorAll("#wi-agents button").forEach((b) => b.classList.toggle("active", b.dataset.agent === agent));
-  root.querySelector("#wi-preview").hidden = true;
   const list = root.querySelector("#wi-list");
   const info = agents.find((a) => a.agent === agent);
   renderCrumbs();
@@ -143,25 +148,158 @@ function renderList(data) {
   }));
 }
 
+// ── Visor ────────────────────────────────────────────────────────────────────
+//
+// Se abre a la derecha del listado. Según el tipo: Markdown renderizado (con diagramas
+// mermaid), imagen, o texto tal cual. Markdown, DOMPurify y Mermaid vienen de un CDN con la
+// versión fijada, como Chart.js: hace falta red en el navegador la primera vez, y sin ella
+// el Markdown se enseña como texto.
+
+const CDN = {
+  marked: "https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js",
+  purify: "https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js",
+  mermaid: "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js",
+};
+const IMAGE = /\.(png|jpe?g|gif|webp|bmp|ico|avif|svg)$/i;
+const MARKDOWN = /\.(md|markdown)$/i;
+const MERMAID = /\.(mmd|mermaid)$/i;
+const loaded = {};
+
+function loadScript(name) {
+  if (!loaded[name]) {
+    loaded[name] = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = CDN[name];
+      s.onload = resolve;
+      s.onerror = () => { delete loaded[name]; s.remove(); reject(new Error(`no se pudo cargar ${name} (¿hay red?)`)); };
+      document.head.appendChild(s);
+    });
+  }
+  return loaded[name];
+}
+
+// Resuelve una ruta relativa (con ./ y ../) contra la carpeta del documento. null si se sale.
+function resolveRel(baseDir, rel) {
+  const out = baseDir.split("/").filter(Boolean);
+  for (const part of decodeURIComponent(rel.split(/[?#]/)[0]).split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") { if (!out.length) return null; out.pop(); } else out.push(part);
+  }
+  return out.join("/");
+}
+
+let previewEntry = null, previewMode = "rendered";
+
+function toggleFull(force) {
+  const box = root?.querySelector("#wi-preview");
+  if (!box) return;
+  const on = force ?? !box.classList.contains("full");
+  box.classList.toggle("full", on);
+  const b = box.querySelector("#wi-full");
+  if (b) b.textContent = on ? "✕ Cerrar" : "⛶ Pantalla completa";
+}
+
+function onKey(e) { if (e.key === "Escape") toggleFull(false); }
+
 async function preview(entry) {
+  previewEntry = entry;
   const box = root.querySelector("#wi-preview");
   box.hidden = false;
   const url = apiUrl(state.agent, entry.path);
-  const head = `<h2>${esc(entry.path)} <small>· ${size(entry.size)}</small>
-    <a class="ghost small" href="${url}?download=1">descargar</a></h2>`;
-  if (!TEXTLIKE.test(entry.name) || entry.size > PREVIEW_MAX) {
-    box.innerHTML = head + `<p class="meta">${TEXTLIKE.test(entry.name) ? "Demasiado grande para previsualizar" : "Sin vista previa para este tipo"}; descárgalo.</p>`;
-    return;
-  }
-  box.innerHTML = head + '<p class="meta">Cargando…</p>';
+  const isMd = MARKDOWN.test(entry.name) || MERMAID.test(entry.name);
+  const full = box.classList.contains("full");
+  box.innerHTML = `<h2>${esc(entry.path)} <small>${entry.size == null ? "" : "· " + size(entry.size)}</small></h2>
+    <div class="wi-tools">
+      ${isMd ? `<span class="segmented"><button data-mode="rendered" class="${previewMode === "rendered" ? "active" : ""}">Vista</button><button data-mode="source" class="${previewMode === "source" ? "active" : ""}">Fuente</button></span>` : ""}
+      <a class="ghost small" href="${url}?download=1">⬇ descargar</a>
+      <button id="wi-full" class="ghost small">${full ? "✕ Cerrar" : "⛶ Pantalla completa"}</button>
+    </div>
+    <div id="wi-body" class="wi-body"><p class="meta">Cargando…</p></div>`;
+  box.querySelector("#wi-full").addEventListener("click", () => toggleFull());
+  box.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => {
+    previewMode = b.dataset.mode; preview(entry);
+  }));
+  const body = box.querySelector("#wi-body");
+  const current = () => previewEntry === entry && root;   // el usuario pudo abrir otro mientras tanto
+
   try {
-    const r = await fetch(url);
-    const text = await r.text();
-    box.innerHTML = head + `<pre class="wi-pre">${esc(text)}</pre>`;
-    box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (IMAGE.test(entry.name)) {
+      // Por blob, con el tipo que toca: el servidor entrega el SVG como text/plain (para que
+      // abrirlo en una pestaña no ejecute nada) y así <img> sigue pudiendo dibujarlo, sin scripts.
+      const blob = await (await fetch(url)).blob();
+      if (!current()) return;
+      const typed = /\.svg$/i.test(entry.name) ? new Blob([blob], { type: "image/svg+xml" }) : blob;
+      body.innerHTML = '<img class="wi-img" alt="" />';
+      body.querySelector("img").src = URL.createObjectURL(typed);
+      return;
+    }
+    if (!TEXTLIKE.test(entry.name)) {
+      body.innerHTML = '<p class="meta">Sin vista previa para este tipo; descárgalo.</p>';
+      return;
+    }
+    if (entry.size != null && entry.size > PREVIEW_MAX) {
+      body.innerHTML = '<p class="meta">Demasiado grande para previsualizar; descárgalo.</p>';
+      return;
+    }
+    const text = await (await fetch(url)).text();
+    if (!current()) return;
+    if (isMd && previewMode === "rendered") {
+      try { await renderMarkdown(body, text, entry); return; }
+      catch (e) { body.innerHTML = `<p class="meta error">${esc(e.message)} — se muestra el fuente.</p><pre class="wi-pre">${esc(text)}</pre>`; return; }
+    }
+    body.innerHTML = `<pre class="wi-pre">${esc(text)}</pre>`;
   } catch (e) {
-    box.innerHTML = head + `<p class="meta error">${esc(e.message)}</p>`;
+    if (current()) body.innerHTML = `<p class="meta error">${esc(e.message)}</p>`;
   }
+}
+
+async function renderMarkdown(body, text, entry) {
+  const dir = entry.path.split("/").slice(0, -1).join("/");
+  const source = MERMAID.test(entry.name) ? "```mermaid\n" + text + "\n```" : text;
+  await Promise.all([loadScript("marked"), loadScript("purify")]);
+  const html = window.DOMPurify.sanitize(window.marked.parse(source, { gfm: true }));
+  body.innerHTML = `<div class="md">${html}</div>`;
+  const md = body.querySelector(".md");
+
+  // Imágenes y enlaces relativos apuntan a otros ficheros del mismo workitem.
+  const isRelative = (v) => v && !/^([a-z][a-z0-9+.-]*:|\/|#)/i.test(v);
+  md.querySelectorAll("img").forEach((img) => {
+    const src = img.getAttribute("src");
+    if (!isRelative(src)) return;
+    const target = resolveRel(dir, src);
+    if (target != null) img.src = apiUrl(state.agent, target);
+  });
+  md.querySelectorAll("a").forEach((a) => {
+    const href = a.getAttribute("href");
+    if (isRelative(href)) {
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        const target = resolveRel(dir, href);
+        if (target != null) preview({ path: target, name: target.split("/").pop(), size: null });
+      });
+    } else if (href && !href.startsWith("#")) {
+      a.target = "_blank"; a.rel = "noopener noreferrer";
+    }
+  });
+
+  const blocks = [...md.querySelectorAll("pre > code.language-mermaid")];
+  if (!blocks.length) return;
+  await loadScript("mermaid");
+  window.mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
+  for (const code of blocks) {
+    const holder = document.createElement("div");
+    holder.className = "mermaid-box";
+    try {
+      const { svg } = await window.mermaid.render(`mmd-${Math.random().toString(36).slice(2)}`, code.textContent);
+      holder.innerHTML = svg;
+    } catch (e) {
+      // Un diagrama roto no tumba el documento: se deja el código con el motivo.
+      holder.innerHTML = `<p class="meta error">Diagrama mermaid no válido: ${esc(String(e.message || e).split("\n")[0])}</p><pre class="wi-pre">${esc(code.textContent)}</pre>`;
+    }
+    code.parentElement.replaceWith(holder);
+  }
+  // mermaid deja nodos auxiliares en <body> si falla un render.
+  document.querySelectorAll('body > [id^="dmmd-"]').forEach((n) => n.remove());
 }
 
 async function upload(files) {
