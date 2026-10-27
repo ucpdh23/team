@@ -353,6 +353,9 @@ services:
       - CONSOLE_COST_DIR=/data/cost-tracking
       - CONSOLE_DATA_DIR=/data/console
       - CONSOLE_SCRIPTS_DIR=/data/scripts
+      - CONSOLE_WORKSPACES_DIR=/data/workspaces
+      # Tamaño máximo (MiB) de un fichero subido a workitems desde la web o con curl -T.
+      - CONSOLE_MAX_UPLOAD_MB=${CONSOLE_MAX_UPLOAD_MB:-50}
       # El contenedor solo ve su 0.0.0.0 interno: recibe CONSOLE_BIND para poder avisar de que
       # queda accesible sin autenticación desde fuera de esta máquina.
       - CONSOLE_BIND=${CONSOLE_BIND:-127.0.0.1}
@@ -387,6 +390,14 @@ services:
       # con su propio ciclo de vida): viven en tmp/scripts/, que .gitignore deja fuera
       # conservando solo el directorio. CONSOLE_SCRIPTS_DIR permite moverlos a otro sitio.
       - ${CONSOLE_SCRIPTS_DIR:-./tmp/scripts}:/data/scripts:ro
+      # Los workspaces de los cinco agentes, para la pestaña Workitems: la consola solo expone
+      # <rol>/workitems (ver console/workitems.py), nunca el resto del workspace. Lectura y
+      # escritura porque desde ahí se pueden subir ficheros.
+      - manager-workspace:/data/workspaces/manager
+      - backend-workspace:/data/workspaces/backend
+      - frontend-workspace:/data/workspaces/frontend
+      - devops-workspace:/data/workspaces/devops
+      - cypress-workspace:/data/workspaces/cypress
       # Estado propio de la consola (base de datos y logs): sobrevive a `--stop`, igual que
       # los volúmenes *-pi-home de los agentes.
       - console-data:/data/console

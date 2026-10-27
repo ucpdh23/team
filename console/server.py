@@ -17,7 +17,7 @@ import time
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from . import costs
 from .config import Config
@@ -29,6 +29,7 @@ from .human_notify import HumanNotify
 from .inbox import Inbox
 from .system import SystemInfo
 from .terminal import TerminalBridge
+from .workitems import WorkitemError, Workitems
 from .tmux import TmuxView
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -64,7 +65,7 @@ def _path_parts(path: str, prefix: str) -> list[str]:
 
 def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                   system: SystemInfo, inbox: Inbox, cron: CronManager, tmux: TmuxView,
-                  terminal: TerminalBridge, human: HumanNotify):
+                  terminal: TerminalBridge, human: HumanNotify, workitems: Workitems):
     class Handler(BaseHTTPRequestHandler):
         # Silencia el log por defecto (una línea por request) para no ensuciar la salida del
         # contenedor, que es donde se ven los avisos que sí importan.
@@ -102,6 +103,70 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 self.send_header(name, value)
             self.end_headers()
             self.wfile.write(body)
+
+        # ---------------------------------------------------------------- workitems
+
+        def _workitems(self, method: str, parsed, query, extra_headers):
+            """/api/workitems[/<agente>[/<ruta...>]] — navegar, leer y subir.
+
+            GET directorio → JSON; GET fichero → el contenido tal cual (curl -O lo baja);
+            PUT fichero (curl -T) → lo crea; DELETE no existe a propósito.
+            """
+            parts = [unquote(p) for p in _path_parts(parsed.path, "/api/workitems")]
+            try:
+                if method == "GET":
+                    if not parts:
+                        self._send_json(workitems.agents(), extra_headers=extra_headers)
+                        return
+                    agent, rest = parts[0], parts[1:]
+                    root = workitems._resolve(agent, rest)
+                    if root.is_dir():
+                        rec = (query.get("recursive") or ["0"])[0] not in ("0", "", "false")
+                        self._send_json(workitems.list(agent, rest, rec),
+                                        extra_headers=extra_headers)
+                    else:
+                        self._send_workitem_file(*workitems.open_file(agent, rest),
+                                                 download=(query.get("download") or ["0"])[0]
+                                                 not in ("0", "", "false"),
+                                                 extra_headers=extra_headers)
+                    return
+                # PUT
+                if len(parts) < 2:
+                    raise WorkitemError(400, "usa PUT /api/workitems/<agente>/<ruta/fichero>")
+                # Un PUT ya obliga al navegador a un preflight que la consola no responde, pero
+                # con Origin presente se exige además que sea la propia consola.
+                origin = self.headers.get("Origin")
+                if origin and urlparse(origin).netloc != self.headers.get("Host"):
+                    raise WorkitemError(403, "origen no permitido")
+                try:
+                    length = int(self.headers.get("Content-Length") or -1)
+                except ValueError:
+                    length = -1
+                if length < 0:
+                    raise WorkitemError(411, "falta Content-Length")
+                overwrite = (query.get("overwrite") or ["0"])[0] not in ("0", "", "false")
+                self._send_json(workitems.save(parts[0], parts[1:], self.rfile, length,
+                                               overwrite),
+                                status=201, extra_headers=extra_headers)
+            except WorkitemError as exc:
+                self._send_json({"error": exc.message}, status=exc.status)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+
+        def _send_workitem_file(self, path, ctype, size, download, extra_headers=()):
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(size))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", "sandbox")
+            if download:
+                self.send_header("Content-Disposition",
+                                 f'attachment; filename="{path.name}"')
+            for name, value in extra_headers:
+                self.send_header(name, value)
+            self.end_headers()
+            with open(path, "rb") as fh:
+                shutil.copyfileobj(fh, self.wfile)
 
         # ------------------------------------------------------------ autenticación
 
@@ -141,6 +206,10 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
             authorized, extra_headers = self._authorize(query)
             if not authorized:
                 self._send_json({"error": "unauthorized"}, status=401)
+                return
+
+            if parsed.path == "/api/workitems" or parsed.path.startswith("/api/workitems/"):
+                self._workitems("GET", parsed, query, extra_headers)
                 return
 
             if parsed.path == "/api/consumption":
@@ -385,6 +454,18 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
             # esperar nada más que esto.
             self._send_json(result, status=202, extra_headers=extra_headers)
 
+        def do_PUT(self):
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+            authorized, extra_headers = self._authorize(query)
+            if not authorized:
+                self._send_json({"error": "unauthorized"}, status=401)
+                return
+            if not parsed.path.startswith("/api/workitems/"):
+                self.send_error(404, "Not found")
+                return
+            self._workitems("PUT", parsed, query, extra_headers)
+
         def do_DELETE(self):
             parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
@@ -553,7 +634,10 @@ def serve(config: Config) -> int:
     tmux = TmuxView(docker, system)
     terminal = TerminalBridge(docker, system, config.token)
 
-    handler = _make_handler(config, docker, events, system, inbox, cron, tmux, terminal, human)
+    workitems = Workitems(config.workspaces_dir, config.max_upload_mb << 20)
+
+    handler = _make_handler(config, docker, events, system, inbox, cron, tmux, terminal, human,
+                            workitems)
     try:
         httpd = ThreadingHTTPServer(("0.0.0.0", config.port), handler)
     except OSError as exc:

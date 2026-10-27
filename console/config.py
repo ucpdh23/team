@@ -27,6 +27,8 @@ class Config:
     cost_dir: Path
     data_dir: Path
     scripts_dir: Path
+    #: Dónde cuelgan los workspaces de los agentes (`<dir>/<rol>/workitems`). Ver workitems.py.
+    workspaces_dir: Path
     #: Valor de CONSOLE_BIND con el que el compose publica el puerto. El contenedor no puede
     #: saberlo por sí mismo (solo ve su 0.0.0.0 interno) y se usa únicamente para avisar de
     #: que la consola queda accesible sin autenticación fuera de esta máquina.
@@ -40,6 +42,8 @@ class Config:
     #: de hoy" entregado tres días tarde es ruido, no información.
     inbox_ttl_hours: int = 24
     container_prefix: str = "pi"
+    #: Tamaño máximo de un fichero subido a workitems, en MiB.
+    max_upload_mb: int = 50
     docker_socket: str = "/var/run/docker.sock"
 
     @classmethod
@@ -49,6 +53,8 @@ class Config:
             cost_dir=_env_path("CONSOLE_COST_DIR", "/data/cost-tracking"),
             data_dir=_env_path("CONSOLE_DATA_DIR", "/data/console"),
             scripts_dir=_env_path("CONSOLE_SCRIPTS_DIR", "/data/scripts"),
+            workspaces_dir=_env_path("CONSOLE_WORKSPACES_DIR", "/data/workspaces"),
+            max_upload_mb=int(os.environ.get("CONSOLE_MAX_UPLOAD_MB", "").strip() or 50),
             bind=os.environ.get("CONSOLE_BIND", "").strip() or "127.0.0.1",
             token=os.environ.get("CONSOLE_TOKEN", "").strip(),
             event_retention_days=int(
@@ -67,6 +73,7 @@ class Config:
             cost_dir=cost_dir,
             data_dir=cost_dir.parent / ".console-local",
             scripts_dir=cost_dir.parent / ".console-local" / "scripts",
+            workspaces_dir=cost_dir.parent / ".console-local" / "workspaces",
             docker_socket="",
         )
 

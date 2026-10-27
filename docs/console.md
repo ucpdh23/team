@@ -15,7 +15,7 @@ It is **not** an agent: no `pi`, no tmux session, no repository of its own, and 
 register on the pi-link mesh. It observes, it schedules scripts, and — only with a
 `CONSOLE_TOKEN`, and only when you ask — it opens a real terminal into one agent.
 
-## The five tabs
+## The six tabs
 
 | Tab | What it's for |
 |---|---|
@@ -23,7 +23,31 @@ register on the pi-link mesh. It observes, it schedules scripts, and — only wi
 | **Actividad** | Who talks to whom. Each message lights the edge between two agents and fades over ~10 s, a dot travels from sender to recipient, and the list below shows one line per message with how long delivery took. |
 | **Costes** | The LLM cost dashboard: total and per agent, over time, by model. Same data as [LLM cost tracking](../README.md#llm-cost-tracking) below, read from `cost-tracking/`. |
 | **Cron** | Schedules the team's scripts (below), with history, full output of each run, "run now", and the notices still waiting to be delivered to an agent. |
+| **Workitems** | Browse each agent's `/workspace/workitems`, read the documents, upload files (button or drag & drop). Same thing over HTTP, see [Workitems API](#workitems-api). |
 | **Tmux** | The five agents' panes side by side, **read-only**, refreshed every 5 s. Click one to enlarge it; **Escribir** turns it into a real terminal you can type in (needs `CONSOLE_TOKEN`, see [below](#typing-into-an-agent-tmux-tab)). The `attach` button still copies the `docker exec` command for a terminal of your own. |
+
+## Workitems API
+
+The console mounts the five `*-workspace` volumes under `/data/workspaces/<role>` and exposes
+**only** `<role>/workitems` (nothing above it; `..` and symlinks pointing outside are refused).
+Same auth as the rest (`X-Console-Token` header if `CONSOLE_TOKEN` is set).
+
+```bash
+curl localhost:4070/api/workitems                          # agents, and how many items each has
+curl localhost:4070/api/workitems/backend                  # list a folder (JSON)
+curl localhost:4070/api/workitems/backend/login-feature    # …any subfolder
+curl 'localhost:4070/api/workitems/backend?recursive=1'    # every file below, flat (max 5000)
+curl localhost:4070/api/workitems/backend/login-feature/spec.md        # a file: raw content
+curl -OJ 'localhost:4070/api/workitems/backend/login-feature/spec.md?download=1'
+curl -T spec.md localhost:4070/api/workitems/backend/login-feature/spec.md   # upload (PUT)
+curl -T spec.md '…/spec.md?overwrite=1'                    # replace (409 otherwise)
+```
+
+A directory answers JSON `{agent, path, entries:[{name, path, type, size, modified}]}`; a file
+answers its bytes. HTML/SVG/JS are served as `text/plain` so viewing a document never runs it.
+Uploads create missing folders, are written atomically and capped by `CONSOLE_MAX_UPLOAD_MB`
+(50). There is no delete on purpose. Files uploaded by the console are owned by root, like
+everything else in the workspaces.
 
 ## Typing into an agent (Tmux tab)
 

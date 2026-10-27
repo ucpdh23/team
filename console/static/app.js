@@ -11,6 +11,7 @@ const VIEWS = {
   costes: () => import("/views/costes.js"),
   cron: () => import("/views/cron.js"),
   tmux: () => import("/views/tmux.js"),
+  workitems: () => import("/views/workitems.js"),
 };
 const DEFAULT_VIEW = "sistema";
 

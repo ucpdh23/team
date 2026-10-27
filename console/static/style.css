@@ -355,3 +355,11 @@ ul.events li .tag { margin-left: auto; text-transform: none; }
 .tmux-term .xterm { padding: 0; }
 /* El historial lo lleva tmux, no el navegador: la barra de scroll de xterm.js no serviría de nada. */
 .tmux-term .xterm .xterm-viewport { overflow-y: hidden; }
+
+/* Workitems */
+.wi-pre {
+  background: #0b0e14; border: 1px solid #1b1f29; border-radius: 6px; padding: 12px;
+  max-height: 60vh; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-word;
+}
+#wi-list.dragging { outline: 2px dashed var(--accent); outline-offset: 4px; }
+#wi-crumbs { margin: 12px 0 8px; }
