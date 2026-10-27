@@ -186,9 +186,7 @@ async function upload(files) {
 
 async function copyCurl() {
   const url = location.origin + apiUrl(state.agent, state.path);
-  const cmd = `curl ${url}
-# subir:  curl -T fichero.md ${url}/fichero.md`;
+  const cmd = `curl ${url}` + String.fromCharCode(10) + `# subir:  curl -T fichero.md ${url}/fichero.md`;
   try { await navigator.clipboard.writeText(cmd); } catch (_) { /* sin portapapeles */ }
-  root.querySelector("#wi-meta").textContent = "Copiado: " + cmd.split("
-")[0];
+  root.querySelector("#wi-meta").textContent = "Copiado: curl " + url;
 }
