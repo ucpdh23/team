@@ -391,3 +391,6 @@ ul.events li .tag { margin-left: auto; text-transform: none; }
 .md img { max-width: 100%; }
 .md hr { border: 0; border-top: 1px solid #262b38; margin: 16px 0; }
 .md ul.contains-task-list, .md li:has(> input[type=checkbox]) { list-style: none; }
+
+.wi-edit { width: 100%; min-height: 55vh; box-sizing: border-box; background: #0b0e14; color: var(--text, #e6e8ee); border: 1px solid #262b38; border-radius: 6px; padding: 12px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; resize: vertical; tab-size: 2; }
+.wi-viewer.full .wi-edit { min-height: 75vh; }

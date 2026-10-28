@@ -29,6 +29,8 @@ class Config:
     scripts_dir: Path
     #: Dónde cuelgan los workspaces de los agentes (`<dir>/<rol>/workitems`). Ver workitems.py.
     workspaces_dir: Path
+    #: Dónde está `agents/` del repositorio (skills y AGENTS.md). Ver skills.py.
+    agents_dir: Path
     #: Valor de CONSOLE_BIND con el que el compose publica el puerto. El contenedor no puede
     #: saberlo por sí mismo (solo ve su 0.0.0.0 interno) y se usa únicamente para avisar de
     #: que la consola queda accesible sin autenticación fuera de esta máquina.
@@ -44,6 +46,9 @@ class Config:
     container_prefix: str = "pi"
     #: Tamaño máximo de un fichero subido a workitems, en MiB.
     max_upload_mb: int = 50
+    #: Stacks activos: deciden qué AGENTS.<stack>.md monta el compose en backend y frontend.
+    backend_stack: str = "java"
+    frontend_stack: str = "angular"
     docker_socket: str = "/var/run/docker.sock"
 
     @classmethod
@@ -54,6 +59,9 @@ class Config:
             data_dir=_env_path("CONSOLE_DATA_DIR", "/data/console"),
             scripts_dir=_env_path("CONSOLE_SCRIPTS_DIR", "/data/scripts"),
             workspaces_dir=_env_path("CONSOLE_WORKSPACES_DIR", "/data/workspaces"),
+            agents_dir=_env_path("CONSOLE_AGENTS_DIR", "/data/agents"),
+            backend_stack=os.environ.get("BACKEND_STACK", "").strip() or "java",
+            frontend_stack=os.environ.get("FRONTEND_STACK", "").strip() or "angular",
             max_upload_mb=int(os.environ.get("CONSOLE_MAX_UPLOAD_MB", "").strip() or 50),
             bind=os.environ.get("CONSOLE_BIND", "").strip() or "127.0.0.1",
             token=os.environ.get("CONSOLE_TOKEN", "").strip(),
@@ -74,6 +82,7 @@ class Config:
             data_dir=cost_dir.parent / ".console-local",
             scripts_dir=cost_dir.parent / ".console-local" / "scripts",
             workspaces_dir=cost_dir.parent / ".console-local" / "workspaces",
+            agents_dir=cost_dir.parent / ".console-local" / "agents",
             docker_socket="",
         )
 

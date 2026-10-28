@@ -354,6 +354,10 @@ services:
       - CONSOLE_DATA_DIR=/data/console
       - CONSOLE_SCRIPTS_DIR=/data/scripts
       - CONSOLE_WORKSPACES_DIR=/data/workspaces
+      - CONSOLE_AGENTS_DIR=/data/agents
+      # Para saber cuál de los AGENTS.<stack>.md es el que montan backend y frontend.
+      - BACKEND_STACK=${BACKEND_STACK:-java}
+      - FRONTEND_STACK=${FRONTEND_STACK:-angular}
       # Tamaño máximo (MiB) de un fichero subido a workitems desde la web o con curl -T.
       - CONSOLE_MAX_UPLOAD_MB=${CONSOLE_MAX_UPLOAD_MB:-50}
       # El contenedor solo ve su 0.0.0.0 interno: recibe CONSOLE_BIND para poder avisar de que
@@ -398,6 +402,12 @@ services:
       - frontend-workspace:/data/workspaces/frontend
       - devops-workspace:/data/workspaces/devops
       - cypress-workspace:/data/workspaces/cypress
+      # agents/ del repositorio, para la pestaña Skills: la consola solo expone los AGENTS.md y
+      # los skills (propios y compartidos), ver console/skills.py; el resto (extensiones,
+      # scripts de arranque) queda fuera aunque el directorio esté montado. Lectura y
+      # escritura: desde ahí se editan. Escribe sobre el mismo fichero, no lo renombra,
+      # porque los AGENTS.md están montados como fichero suelto en los agentes.
+      - ./agents:/data/agents
       # Estado propio de la consola (base de datos y logs): sobrevive a `--stop`, igual que
       # los volúmenes *-pi-home de los agentes.
       - console-data:/data/console

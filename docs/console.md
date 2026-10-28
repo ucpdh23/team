@@ -15,7 +15,7 @@ It is **not** an agent: no `pi`, no tmux session, no repository of its own, and 
 register on the pi-link mesh. It observes, it schedules scripts, and — only with a
 `CONSOLE_TOKEN`, and only when you ask — it opens a real terminal into one agent.
 
-## The six tabs
+## The seven tabs
 
 | Tab | What it's for |
 |---|---|
@@ -24,7 +24,21 @@ register on the pi-link mesh. It observes, it schedules scripts, and — only wi
 | **Costes** | The LLM cost dashboard: total and per agent, over time, by model. Same data as [LLM cost tracking](../README.md#llm-cost-tracking) below, read from `cost-tracking/`. |
 | **Cron** | Schedules the team's scripts (below), with history, full output of each run, "run now", and the notices still waiting to be delivered to an agent. |
 | **Workitems** | Browse each agent's `/workspace/workitems`, read the documents, upload files (button or drag & drop). Same thing over HTTP, see [Workitems API](#workitems-api). |
+| **Skills** | Browse and edit each agent's own skills, the shared ones and each agent's `AGENTS.md` (the one its stack actually mounts). Same thing over HTTP, see [Skills API](#skills-api). |
 | **Tmux** | The five agents' panes side by side, **read-only**, refreshed every 5 s. Click one to enlarge it; **Escribir** turns it into a real terminal you can type in (needs `CONSOLE_TOKEN`, see [below](#typing-into-an-agent-tmux-tab)). The `attach` button still copies the `docker exec` command for a terminal of your own. |
+
+## API reference
+
+Everything the console does is available over HTTP. The full reference — written for agents and
+scripts, with `curl` examples for each capability — is served by the console itself:
+
+```bash
+curl $CONSOLE_URL/api.md      # Markdown, for an agent (also: console/static/api.md in this repo)
+# or open http://localhost:4070/api.html for the rendered page ("API ↗" in the header)
+```
+
+Costs have their own analysis endpoint, `GET /api/costs?from=&to=&agent=&model=&by=day|hour`.
+Keep `console/static/api.md` in step when an endpoint is added or changed.
 
 ## Workitems API
 
@@ -48,6 +62,37 @@ answers its bytes. HTML/SVG/JS are served as `text/plain` so viewing a document 
 Uploads create missing folders, are written atomically and capped by `CONSOLE_MAX_UPLOAD_MB`
 (50). There is no delete on purpose. Files uploaded by the console are owned by root, like
 everything else in the workspaces.
+
+## Skills API
+
+The console mounts `./agents` and exposes only the team context the compose hands to the agents.
+Every scope has a small virtual root:
+
+| Scope | `AGENTS.md` is | `skills/` is |
+|---|---|---|
+| `manager`, `devops`, `cypress` | `agents/<role>/AGENTS.md` | `agents/<role>/pi/skills/` |
+| `backend` | `agents/backend/AGENTS.<BACKEND_STACK>.md` | `agents/backend/pi/skills/` |
+| `frontend` | `agents/frontend/AGENTS.<FRONTEND_STACK>.md` | `agents/frontend/pi/skills/` |
+| `shared` | — | `agents/_shared/pi/skills/` (the generic ones) |
+
+Nothing else under `agents/` (extensions, startup scripts) is reachable. Same navigation as
+[Workitems](#workitems-api), with two differences: **PUT replaces by default** (the point is to
+review and improve these files, and they're in git, so `git diff` / `git checkout` undo it;
+`?overwrite=0` makes it refuse), and files are written **in place**, not renamed, because
+the `AGENTS.md` files are bind-mounted as single files into the agents.
+
+```bash
+curl localhost:4070/api/skills                                   # scopes, skill counts, which AGENTS file
+curl localhost:4070/api/skills/backend                           # → AGENTS.md, skills/
+curl 'localhost:4070/api/skills/backend?recursive=1'             # everything of that agent, flat
+curl localhost:4070/api/skills/backend/AGENTS.md                 # (it's AGENTS.kotlin.md if BACKEND_STACK=kotlin)
+curl localhost:4070/api/skills/shared/skills/foo/SKILL.md
+curl -T SKILL.md localhost:4070/api/skills/backend/skills/foo/SKILL.md   # create or replace
+```
+
+Files are capped at 2 MiB and there is no delete. An agent reads these files as instructions,
+so writing here is writing its prompt: with no `CONSOLE_TOKEN` anyone who reaches the port can
+do it. A running `pi` picks changes up on its next `/reload` or restart.
 
 ## Typing into an agent (Tmux tab)
 

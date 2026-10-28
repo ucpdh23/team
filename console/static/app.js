@@ -12,6 +12,7 @@ const VIEWS = {
   cron: () => import("/views/cron.js"),
   tmux: () => import("/views/tmux.js"),
   workitems: () => import("/views/workitems.js"),
+  skills: () => import("/views/skills.js"),
 };
 const DEFAULT_VIEW = "sistema";
 

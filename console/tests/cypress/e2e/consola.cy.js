@@ -26,7 +26,7 @@ describe("consola team-pi", () => {
 
   it("Sistema: pinta los contenedores y el estado de la malla", () => {
     cy.visit("/");
-    cy.get("nav#tabs a").should("have.length", 6);
+    cy.get("nav#tabs a").should("have.length", 8);
     cy.get("nav#tabs a.active").should("contain", "Sistema");
     cy.get("#containers table tbody tr").should("have.length.greaterThan", 0);
     cy.contains("#sys-meta", "contenedores en marcha");

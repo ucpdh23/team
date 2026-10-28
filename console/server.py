@@ -29,7 +29,8 @@ from .human_notify import HumanNotify
 from .inbox import Inbox
 from .system import SystemInfo
 from .terminal import TerminalBridge
-from .workitems import WorkitemError, Workitems
+from .skills import Skills
+from .workitems import Tree, WorkitemError, Workitems
 from .tmux import TmuxView
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -46,6 +47,7 @@ _CONTENT_TYPES = {
     ".js": "application/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".json": "application/json; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
     ".map": "application/json; charset=utf-8",
@@ -65,7 +67,8 @@ def _path_parts(path: str, prefix: str) -> list[str]:
 
 def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                   system: SystemInfo, inbox: Inbox, cron: CronManager, tmux: TmuxView,
-                  terminal: TerminalBridge, human: HumanNotify, workitems: Workitems):
+                  terminal: TerminalBridge, human: HumanNotify, workitems: Workitems,
+                  skills: Skills):
     class Handler(BaseHTTPRequestHandler):
         # Silencia el log por defecto (una línea por request) para no ensuciar la salida del
         # contenedor, que es donde se ven los avisos que sí importan.
@@ -106,33 +109,29 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
 
         # ---------------------------------------------------------------- workitems
 
-        def _workitems(self, method: str, parsed, query, extra_headers):
-            """/api/workitems[/<agente>[/<ruta...>]] — navegar, leer y subir.
+        def _tree(self, tree: Tree, prefix: str, method: str, parsed, query, extra_headers):
+            """/api/<prefix>[/<ámbito>[/<ruta...>]] — navegar, leer y subir (workitems, skills).
 
             GET directorio → JSON; GET fichero → el contenido tal cual (curl -O lo baja);
             PUT fichero (curl -T) → lo crea; DELETE no existe a propósito.
             """
-            parts = [unquote(p) for p in _path_parts(parsed.path, "/api/workitems")]
+            parts = [unquote(p) for p in _path_parts(parsed.path, prefix)]
+            flag = lambda name: (query.get(name) or [None])[0] not in (None, "0", "", "false")  # noqa: E731
             try:
                 if method == "GET":
                     if not parts:
-                        self._send_json(workitems.agents(), extra_headers=extra_headers)
+                        self._send_json(tree.index(), extra_headers=extra_headers)
                         return
-                    agent, rest = parts[0], parts[1:]
-                    root = workitems._resolve(agent, rest)
-                    if root.is_dir():
-                        rec = (query.get("recursive") or ["0"])[0] not in ("0", "", "false")
-                        self._send_json(workitems.list(agent, rest, rec),
-                                        extra_headers=extra_headers)
+                    result = tree.read(parts[0], parts[1:], flag("recursive"))
+                    if result[0] == "json":
+                        self._send_json(result[1], extra_headers=extra_headers)
                     else:
-                        self._send_workitem_file(*workitems.open_file(agent, rest),
-                                                 download=(query.get("download") or ["0"])[0]
-                                                 not in ("0", "", "false"),
+                        self._send_workitem_file(*result[1:], download=flag("download"),
                                                  extra_headers=extra_headers)
                     return
                 # PUT
                 if len(parts) < 2:
-                    raise WorkitemError(400, "usa PUT /api/workitems/<agente>/<ruta/fichero>")
+                    raise WorkitemError(400, f"usa PUT {prefix}/<ámbito>/<ruta/fichero>")
                 # Un PUT ya obliga al navegador a un preflight que la consola no responde, pero
                 # con Origin presente se exige además que sea la propia consola.
                 origin = self.headers.get("Origin")
@@ -144,9 +143,8 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                     length = -1
                 if length < 0:
                     raise WorkitemError(411, "falta Content-Length")
-                overwrite = (query.get("overwrite") or ["0"])[0] not in ("0", "", "false")
-                self._send_json(workitems.save(parts[0], parts[1:], self.rfile, length,
-                                               overwrite),
+                overwrite = flag("overwrite") if "overwrite" in query else None
+                self._send_json(tree.save(parts[0], parts[1:], self.rfile, length, overwrite),
                                 status=201, extra_headers=extra_headers)
             except WorkitemError as exc:
                 self._send_json({"error": exc.message}, status=exc.status)
@@ -208,9 +206,10 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 self._send_json({"error": "unauthorized"}, status=401)
                 return
 
-            if parsed.path == "/api/workitems" or parsed.path.startswith("/api/workitems/"):
-                self._workitems("GET", parsed, query, extra_headers)
-                return
+            for prefix, tree in (("/api/workitems", workitems), ("/api/skills", skills)):
+                if parsed.path == prefix or parsed.path.startswith(prefix + "/"):
+                    self._tree(tree, prefix, "GET", parsed, query, extra_headers)
+                    return
 
             if parsed.path == "/api/consumption":
                 range_ = (query.get("range") or ["day"])[0]
@@ -220,6 +219,17 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                     lambda: costs.build_payload(config.cost_dir, range_, start, end),
                     extra_headers,
                 )
+                return
+
+            if parsed.path == "/api/costs":
+                self._json_or_value_error(lambda: costs.summary(
+                    config.cost_dir,
+                    start=(query.get("from") or [None])[0],
+                    end=(query.get("to") or [None])[0],
+                    agent=(query.get("agent") or [None])[0],
+                    model=(query.get("model") or [None])[0],
+                    by=(query.get("by") or ["day"])[0],
+                ), extra_headers)
                 return
 
             if parsed.path == "/api/bounds":
@@ -461,10 +471,11 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
             if not authorized:
                 self._send_json({"error": "unauthorized"}, status=401)
                 return
-            if not parsed.path.startswith("/api/workitems/"):
-                self.send_error(404, "Not found")
-                return
-            self._workitems("PUT", parsed, query, extra_headers)
+            for prefix, tree in (("/api/workitems", workitems), ("/api/skills", skills)):
+                if parsed.path.startswith(prefix + "/"):
+                    self._tree(tree, prefix, "PUT", parsed, query, extra_headers)
+                    return
+            self.send_error(404, "Not found")
 
         def do_DELETE(self):
             parsed = urlparse(self.path)
@@ -635,9 +646,10 @@ def serve(config: Config) -> int:
     terminal = TerminalBridge(docker, system, config.token)
 
     workitems = Workitems(config.workspaces_dir, config.max_upload_mb << 20)
+    skills = Skills(config.agents_dir, config.backend_stack, config.frontend_stack)
 
     handler = _make_handler(config, docker, events, system, inbox, cron, tmux, terminal, human,
-                            workitems)
+                            workitems, skills)
     try:
         httpd = ThreadingHTTPServer(("0.0.0.0", config.port), handler)
     except OSError as exc:

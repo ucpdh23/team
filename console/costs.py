@@ -241,3 +241,62 @@ def build_payload(cost_dir: Path, range_: str = "day",
         "records": len(records),
         "cost_dir": str(cost_dir),
     }
+
+
+def _acc(table: dict, key: str, cost: float, tokens: float) -> None:
+    row = table.setdefault(key, {"cost": 0.0, "tokens": 0, "calls": 0})
+    row["cost"] += cost
+    row["tokens"] += int(tokens)
+    row["calls"] += 1
+
+
+def summary(cost_dir: Path, start: str | None = None, end: str | None = None,
+            agent: str | None = None, model: str | None = None, by: str = "day") -> dict:
+    """Resumen de costes pensado para consumirse por API (a diferencia de `build_payload`,
+    que devuelve series alineadas para dibujar gráficas).
+
+    `start`/`end` son fechas AAAA-MM-DD inclusivas en la zona horaria de la consola; sin ellas,
+    todo el histórico. `agent` y `model` filtran (`model` por subcadena, p.ej. «gpt-5»).
+    `by` es la granularidad de `series`: `day` (por defecto) u `hour`.
+    """
+    lo, hi = _parse_date(start), _parse_date(end)
+    if agent and agent not in ROLES:
+        raise ValueError(f"agente desconocido: {agent}")
+    if by not in ("day", "hour"):
+        raise ValueError("by debe ser day u hour")
+    if (start and lo is None) or (end and hi is None):
+        raise ValueError("fechas con formato AAAA-MM-DD")
+    if lo and hi and lo > hi:
+        lo, hi = hi, lo
+
+    total = {"cost": 0.0, "tokens": 0, "calls": 0}
+    by_agent: dict = {}
+    by_model: dict = {}
+    by_agent_model: dict = {}
+    buckets: dict = {}
+    for role, ts, cost, tokens, label in _load(cost_dir):
+        moment = datetime.fromtimestamp(ts / 1000.0)
+        if lo and moment.date() < lo or hi and moment.date() > hi:
+            continue
+        if agent and role != agent or model and model.lower() not in label.lower():
+            continue
+        total["cost"] += cost
+        total["tokens"] += int(tokens)
+        total["calls"] += 1
+        _acc(by_agent, role, cost, tokens)
+        _acc(by_model, label, cost, tokens)
+        _acc(by_agent_model.setdefault(role, {}), label, cost, tokens)
+        bucket = buckets.setdefault(_bucket_key(moment, by), {"by_agent": {}, **{
+            "cost": 0.0, "tokens": 0, "calls": 0}})
+        bucket["cost"] += cost
+        bucket["tokens"] += int(tokens)
+        bucket["calls"] += 1
+        bucket["by_agent"][role] = bucket["by_agent"].get(role, 0.0) + cost
+
+    return {
+        "from": lo.isoformat() if lo else None, "to": hi.isoformat() if hi else None,
+        "agent": agent or None, "model": model or None, "by": by,
+        "total": total, "by_agent": by_agent, "by_model": by_model,
+        "by_agent_model": by_agent_model,
+        "series": [{"bucket": k, **buckets[k]} for k in sorted(buckets)],
+    }
