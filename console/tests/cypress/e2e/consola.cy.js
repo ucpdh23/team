@@ -26,13 +26,21 @@ describe("consola team-pi", () => {
 
   it("Sistema: pinta los contenedores y el estado de la malla", () => {
     cy.visit("/");
-    cy.get("nav#tabs a").should("have.length", 8);
+    cy.get("nav#tabs a").should("have.length", 9);
     cy.get("nav#tabs a.active").should("contain", "Sistema");
     cy.get("#containers table tbody tr").should("have.length.greaterThan", 0);
     cy.contains("#sys-meta", "contenedores en marcha");
     cy.get("#network").should("not.be.empty");
     cy.contains("#disk", "imágenes", { timeout: 15000 });
     cy.screenshot("1-sistema", { capture: "viewport" });
+  });
+
+  it("Docs: navega la documentación compartida y enlaza la referencia API", () => {
+    cy.visit("/#/docs");
+    cy.get("#wi-mkdir").should("contain", "Nueva carpeta");
+    cy.get("#wi-list").should("contain", "console.md");
+    cy.request("/api.md").its("body").should("contain", "Documentación compartida");
+    cy.request("/api.html").its("body").should("contain", "/api.md");
   });
 
   it("Actividad: dibuja el grafo y fusiona envío y entrega en una línea", () => {

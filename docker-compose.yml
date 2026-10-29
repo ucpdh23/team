@@ -355,6 +355,7 @@ services:
       - CONSOLE_SCRIPTS_DIR=/data/scripts
       - CONSOLE_WORKSPACES_DIR=/data/workspaces
       - CONSOLE_AGENTS_DIR=/data/agents
+      - CONSOLE_DOCS_DIR=/data/docs
       # Para saber cuál de los AGENTS.<stack>.md es el que montan backend y frontend.
       - BACKEND_STACK=${BACKEND_STACK:-java}
       - FRONTEND_STACK=${FRONTEND_STACK:-angular}
@@ -408,6 +409,9 @@ services:
       # escritura: desde ahí se editan. Escribe sobre el mismo fichero, no lo renombra,
       # porque los AGENTS.md están montados como fichero suelto en los agentes.
       - ./agents:/data/agents
+      # Documentación compartida con los agentes (montada como /docs en sus contenedores).
+      # La consola la expone desde la raíz de /api/docs y permite leerla y editarla.
+      - ./docs:/data/docs
       # Estado propio de la consola (base de datos y logs): sobrevive a `--stop`, igual que
       # los volúmenes *-pi-home de los agentes.
       - console-data:/data/console

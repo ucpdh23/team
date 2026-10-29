@@ -4,7 +4,7 @@
 // /api/workitems y /api/skills, y el botón «curl» da la orden equivalente.
 //
 // Solo hay una vista montada a la vez, así que el estado es del módulo y `mount` lo
-// configura con `cfg`: { base, hash, rootLabel(scope), missing(scope), editable, upload }.
+// configura con `cfg`: { base, hash, rootLabel(scope), missing(scope), editable, flat }.
 
 const PREVIEW_MAX = 512 * 1024;
 const TEXTLIKE = /\.(md|markdown|txt|log|json|ya?ml|toml|ini|csv|xml|html?|css|svg|js|ts|tsx|py|java|kt|sh|sql|feature|properties|gradle|env)$/i;
@@ -14,7 +14,7 @@ let root = null, cfg = null, agents = [], state = { agent: null, path: "" };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const enc = (path) => path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
-const apiUrl = (agent, path) => `${cfg.base}/${agent}${path ? "/" + enc(path) : ""}`;
+const apiUrl = (agent, path) => `${cfg.base}${cfg.flat ? "" : "/" + agent}${path ? "/" + enc(path) : ""}`;
 const size = (n) => n == null ? "" : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 const when = (ts) => new Date(ts).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" });
 
@@ -23,6 +23,7 @@ const MARKUP = `
     <p class="meta" id="wi-meta">Cargando…</p>
     <div class="controls">
       <button id="wi-curl" class="ghost small" title="Copia el curl equivalente a lo que estás viendo">curl</button>
+      <button id="wi-mkdir" class="ghost">📁 Nueva carpeta</button>
       <button id="wi-upload" class="ghost">⬆ Subir</button>
       <input type="file" id="wi-file" multiple hidden />
     </div>
@@ -44,6 +45,7 @@ export async function mount(container, config) {
   const q = new URLSearchParams((location.hash.split("?")[1]) || "");
   state = { agent: q.get("agent"), path: q.get("path") || "" };
   container.querySelector("#wi-upload").addEventListener("click", () => container.querySelector("#wi-file").click());
+  container.querySelector("#wi-mkdir").addEventListener("click", makeFolder);
   container.querySelector("#wi-file").addEventListener("change", (e) => upload([...e.target.files]));
   container.querySelector("#wi-curl").addEventListener("click", copyCurl);
   // Arrastrar ficheros sobre la lista los sube a la carpeta actual.
@@ -71,14 +73,20 @@ async function getJson(url, options) {
 }
 
 async function loadAgents() {
-  const index = await getJson(cfg.base);
-  // workitems responde {agents:[{agent,…}]}, skills {scopes:[{scope,…}]}: se unifica aquí.
-  agents = (index.agents || index.scopes).map((a) => ({ ...a, agent: a.agent ?? a.scope }));
+  if (cfg.flat) {
+    agents = [{ agent: cfg.scope || "docs", exists: true, items: null }];
+  } else {
+    const index = await getJson(cfg.base);
+    // workitems responde {agents:[{agent,…}]}, skills {scopes:[{scope,…}]}: se unifica aquí.
+    agents = (index.agents || index.scopes).map((a) => ({ ...a, agent: a.agent ?? a.scope }));
+  }
   if (!root) return;
   if (!state.agent || !agents.some((a) => a.agent === state.agent)) {
     state = { agent: (agents.find((a) => a.exists) || agents[0]).agent, path: "" };
   }
   const bar = root.querySelector("#wi-agents");
+  bar.hidden = !!cfg.flat;
+  bar.style.display = cfg.flat ? "none" : "";
   bar.innerHTML = agents.map((a) =>
     `<button data-agent="${a.agent}" class="${a.agent === state.agent ? "active" : ""}" ${a.exists ? "" : 'title="no existe todavía"'}>${a.agent}${a.exists ? ` · ${a.items}` : ""}</button>`).join("");
   bar.querySelectorAll("button").forEach((b) =>
@@ -331,6 +339,25 @@ async function edit(entry, body) {
       await preview({ ...entry, size: new Blob([area.value]).size });
     } catch (e) { msg.textContent = `No se pudo guardar: ${e.message}`; }
   });
+}
+
+async function makeFolder() {
+  const name = prompt("Nombre de la nueva carpeta:");
+  if (name == null) return;
+  const clean = name.trim();
+  if (!clean) return;
+  if ([".", ".."].includes(clean) || /[\\/\\\\\x00]/.test(clean)) {
+    alert("Usa un nombre de carpeta simple, sin / ni \\\\.");
+    return;
+  }
+  const path = (state.path ? state.path + "/" : "") + clean;
+  try {
+    const response = await fetch(apiUrl(state.agent, path), { method: "POST" });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `HTTP ${response.status}`);
+    await loadAgents();
+  } catch (e) {
+    alert(`No se pudo crear la carpeta: ${e.message}`);
+  }
 }
 
 async function upload(files) {

@@ -1,7 +1,8 @@
 # Prueba de interfaz de la consola
 
-Comprueba la consola **en el navegador**, contra el contenedor levantado: que las tres vistas
-pintan lo que deben y que ninguna lanza un error de JavaScript (Cypress falla el test ante
+Comprueba la consola **en el navegador**, contra el contenedor levantado: que las vistas
+principales (incluida la documentación compartida) pintan lo que deben y que ninguna lanza un
+error de JavaScript (Cypress falla el test ante
 cualquier excepción no capturada de la página).
 
 No añade ninguna dependencia al proyecto: reutiliza la imagen del agente `cypress`, que ya

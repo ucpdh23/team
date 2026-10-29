@@ -35,8 +35,9 @@ Los **agentes** válidos son `manager`, `backend`, `frontend`, `devops`, `cypres
 
 | Capacidad | Endpoints | Para qué |
 |---|---|---|
-| [Workitems](#workitems) | `GET/PUT /api/workitems/…` | Leer y subir lo que cada agente tiene en `/workspace/workitems`. |
-| [Skills y AGENTS.md](#skills-y-agentsmd) | `GET/PUT /api/skills/…` | Leer, revisar y **reescribir** los skills (propios y compartidos) y el `AGENTS.md` de cada agente. |
+| [Workitems](#workitems) | `GET/PUT/POST /api/workitems/…` | Leer, subir y organizar lo que cada agente tiene en `/workspace/workitems`. |
+| [Skills y AGENTS.md](#skills-y-agentsmd) | `GET/PUT/POST /api/skills/…` | Leer, revisar y **reescribir** los skills (propios y compartidos) y el `AGENTS.md` de cada agente. |
+| [Docs compartidos](#documentación-compartida) | `GET/PUT/POST /api/docs/…` | Revisar y editar la carpeta `docs/` compartida por los agentes. |
 | [Costes](#costes) | `GET /api/costs` | Gasto en LLM por agente, modelo y día/hora. |
 | [Sistema](#sistema) | `GET /api/system…`, `/api/health` | Contenedores, red, disco y estado vivo de cada agente. |
 | [Actividad](#actividad-eventos) | `GET/POST/DELETE /api/events…` | Quién habló con quién (solo metadatos) y uso de skills. |
@@ -59,6 +60,7 @@ Solo se ve esa carpeta (nada del resto del workspace).
 | `GET …?recursive=1` sobre un directorio | Todos los ficheros de debajo, en plano (máx. 5000, `truncated` lo indica). |
 | `GET /api/workitems/<agente>/<ruta>` sobre un **fichero** | El contenido tal cual. `?download=1` añade `Content-Disposition: attachment`. |
 | `PUT /api/workitems/<agente>/<ruta>` con el contenido como cuerpo | Sube un fichero (crea las carpetas que falten). `201 {"saved","size","replaced"}`. |
+| `POST /api/workitems/<agente>/<ruta-directorio>` | Crea una carpeta y los directorios padres que falten. `201 {"created","type":"dir"}`. |
 
 ```bash
 curl $H "$C/api/workitems"                                   # ¿qué hay?
@@ -72,6 +74,7 @@ curl $H -T informe.md "$C/api/workitems/backend/login/informe.md?overwrite=1"   
 - `path` de cada entrada se puede pegar tal cual tras `/api/workitems/<agente>/`.
 - Subir **no sustituye** por defecto: si existe, `409`; añade `?overwrite=1`.
 - No hay borrado. Máximo 50 MiB por fichero (`CONSOLE_MAX_UPLOAD_MB`).
+- Las carpetas también se crean automáticamente al subir un fichero en una ruta nueva; usa `POST` para crear una carpeta vacía desde la API o el botón **Nueva carpeta** de la web. Si ya existe, devuelve `409`.
 - HTML, SVG y JS se devuelven como `text/plain`; las imágenes con su tipo real.
 
 ## Skills y AGENTS.md
@@ -98,6 +101,7 @@ en `agents_md`.
 | `GET /api/skills/<ámbito>?recursive=1` | Todos los ficheros de ese ámbito, en plano. |
 | `GET /api/skills/<ámbito>/skills/<skill>/SKILL.md` | Contenido del fichero. |
 | `PUT /api/skills/<ámbito>/<ruta>` | Crea o **sustituye** un fichero. |
+| `POST /api/skills/<ámbito>/<ruta-directorio>` | Crea una carpeta y los directorios padres que falten. |
 
 ```bash
 curl $H "$C/api/skills"                                          # panorama
@@ -106,8 +110,11 @@ curl $H "$C/api/skills/backend/AGENTS.md"                        # su contexto d
 curl $H "$C/api/skills/shared/skills/revision/SKILL.md"          # un skill genérico
 curl $H -T SKILL.md "$C/api/skills/backend/skills/revision/SKILL.md"   # crear/mejorar un skill
 curl $H -T AGENTS.md "$C/api/skills/devops/AGENTS.md"            # reescribir su AGENTS.md
+curl -X POST "$C/api/skills/backend/skills/nuevo-skill"         # crear carpeta
 ```
 
+- También puedes crear carpetas vacías con `POST` o con el botón **Nueva carpeta** en la web;
+  los directorios padres que falten se crean automáticamente. Si la ruta ya existe, devuelve `409`.
 - A diferencia de workitems, **`PUT` sustituye por defecto** (`?overwrite=0` lo impide). Los
   ficheros están en git, así que se pueden revertir con `git checkout`.
 - Solo existen `AGENTS.md` y `skills/` en cada ámbito. Extensiones, scripts de arranque y el
@@ -117,6 +124,31 @@ curl $H -T AGENTS.md "$C/api/skills/devops/AGENTS.md"            # reescribir su
   el agente lo ve en su siguiente `/reload` o reinicio.
 - Un skill es una carpeta con un `SKILL.md` (cabecera YAML con `name` y `description`,
   después las instrucciones).
+
+## Documentación compartida
+
+`./docs/` del repositorio, el mismo directorio que los agentes ven montado como `/docs`. La API
+expone directamente su raíz en `/api/docs` (sin ámbito de agente):
+
+| Petición | Resultado |
+|---|---|
+| `GET /api/docs` | Lista la raíz de `docs/`. |
+| `GET /api/docs/<ruta>` | Lista una carpeta o devuelve el contenido de un fichero. `?recursive=1` aplana el árbol. |
+| `PUT /api/docs/<ruta>` | Crea un fichero; crea los directorios padres que falten. Si ya existe, añade `?overwrite=1` para sustituirlo. |
+| `POST /api/docs/<ruta-directorio>` | Crea una carpeta (y los directorios padres que falten). Devuelve `201`; si ya existe, `409`. |
+
+```bash
+curl $H "$C/api/docs"                                         # índice de la documentación
+curl $H "$C/api/docs/console.md"                              # leer un documento
+curl $H -T nueva-guia.md "$C/api/docs/guia/nueva-guia.md"      # subir, creando guia/ si falta
+curl -X POST "$C/api/docs/guia/referencias"                    # crear una carpeta vacía
+```
+
+La pestaña **Docs** ofrece el mismo explorador que Workitems y Skills: vista previa, edición de
+texto, subida y creación explícita de carpetas. La subida no sustituye un fichero existente por
+defecto (`?overwrite=1` lo permite). Los cambios se escriben directamente en el
+repositorio y los agentes los ven en `/docs`. El límite de subida es `CONSOLE_MAX_UPLOAD_MB`
+(50 MiB por defecto); no hay borrado.
 
 ## Costes
 

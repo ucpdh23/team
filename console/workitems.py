@@ -135,6 +135,20 @@ class Tree:
 
     # ----------------------------------------------------------------- escritura
 
+    def mkdir(self, scope: str, parts: list[str]) -> dict:
+        """Crea un directorio (y los padres que falten) dentro de la raíz permitida."""
+        if not parts:
+            raise WorkitemError(400, "falta el nombre del directorio en la ruta")
+        self._check_parts(parts)
+        target = self._resolve(scope, parts, must_exist=False)
+        if target.exists():
+            raise WorkitemError(409, "ya existe un fichero o directorio con ese nombre")
+        try:
+            target.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            raise WorkitemError(409, "ya existe un fichero o directorio con ese nombre")
+        return {"created": "/".join(parts), "type": "dir"}
+
     def save(self, scope: str, parts: list[str], stream, length: int,
              overwrite: bool | None = None) -> dict:
         if not parts:

@@ -31,6 +31,8 @@ class Config:
     workspaces_dir: Path
     #: Dónde está `agents/` del repositorio (skills y AGENTS.md). Ver skills.py.
     agents_dir: Path
+    #: Carpeta `docs/` compartida por los agentes y navegable desde la consola.
+    docs_dir: Path
     #: Valor de CONSOLE_BIND con el que el compose publica el puerto. El contenedor no puede
     #: saberlo por sí mismo (solo ve su 0.0.0.0 interno) y se usa únicamente para avisar de
     #: que la consola queda accesible sin autenticación fuera de esta máquina.
@@ -60,6 +62,7 @@ class Config:
             scripts_dir=_env_path("CONSOLE_SCRIPTS_DIR", "/data/scripts"),
             workspaces_dir=_env_path("CONSOLE_WORKSPACES_DIR", "/data/workspaces"),
             agents_dir=_env_path("CONSOLE_AGENTS_DIR", "/data/agents"),
+            docs_dir=_env_path("CONSOLE_DOCS_DIR", "/data/docs"),
             backend_stack=os.environ.get("BACKEND_STACK", "").strip() or "java",
             frontend_stack=os.environ.get("FRONTEND_STACK", "").strip() or "angular",
             max_upload_mb=int(os.environ.get("CONSOLE_MAX_UPLOAD_MB", "").strip() or 50),
@@ -83,6 +86,7 @@ class Config:
             scripts_dir=cost_dir.parent / ".console-local" / "scripts",
             workspaces_dir=cost_dir.parent / ".console-local" / "workspaces",
             agents_dir=cost_dir.parent / ".console-local" / "agents",
+            docs_dir=cost_dir.parent / "docs",
             docker_socket="",
         )
 

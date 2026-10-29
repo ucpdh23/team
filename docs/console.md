@@ -15,7 +15,7 @@ It is **not** an agent: no `pi`, no tmux session, no repository of its own, and 
 register on the pi-link mesh. It observes, it schedules scripts, and — only with a
 `CONSOLE_TOKEN`, and only when you ask — it opens a real terminal into one agent.
 
-## The seven tabs
+## The eight tabs
 
 | Tab | What it's for |
 |---|---|
@@ -25,6 +25,7 @@ register on the pi-link mesh. It observes, it schedules scripts, and — only wi
 | **Cron** | Schedules the team's scripts (below), with history, full output of each run, "run now", and the notices still waiting to be delivered to an agent. |
 | **Workitems** | Browse each agent's `/workspace/workitems`, read the documents, upload files (button or drag & drop). Same thing over HTTP, see [Workitems API](#workitems-api). |
 | **Skills** | Browse and edit each agent's own skills, the shared ones and each agent's `AGENTS.md` (the one its stack actually mounts). Same thing over HTTP, see [Skills API](#skills-api). |
+| **Docs** | Browse and edit the repository's shared `docs/` folder — the same files agents see mounted at `/docs`. Supports preview, text editing, uploads and creating folders; see [Docs API](#docs-api). |
 | **Tmux** | The five agents' panes side by side, **read-only**, refreshed every 5 s. Click one to enlarge it; **Escribir** turns it into a real terminal you can type in (needs `CONSOLE_TOKEN`, see [below](#typing-into-an-agent-tmux-tab)). The `attach` button still copies the `docker exec` command for a terminal of your own. |
 
 ## API reference
@@ -60,7 +61,9 @@ curl -T spec.md '…/spec.md?overwrite=1'                    # replace (409 othe
 A directory answers JSON `{agent, path, entries:[{name, path, type, size, modified}]}`; a file
 answers its bytes. HTML/SVG/JS are served as `text/plain` so viewing a document never runs it.
 Uploads create missing folders, are written atomically and capped by `CONSOLE_MAX_UPLOAD_MB`
-(50). There is no delete on purpose. Files uploaded by the console are owned by root, like
+(50). Empty folders can also be created with `POST /api/workitems/<role>/<path>` or the
+**Nueva carpeta** button; a conflicting path returns `409`. There is no delete on purpose. Files
+uploaded by the console are owned by root, like
 everything else in the workspaces.
 
 ## Skills API
@@ -90,9 +93,35 @@ curl localhost:4070/api/skills/shared/skills/foo/SKILL.md
 curl -T SKILL.md localhost:4070/api/skills/backend/skills/foo/SKILL.md   # create or replace
 ```
 
-Files are capped at 2 MiB and there is no delete. An agent reads these files as instructions,
-so writing here is writing its prompt: with no `CONSOLE_TOKEN` anyone who reaches the port can
+Files are capped at 2 MiB and there is no delete. Empty folders can be created with
+`POST /api/skills/<scope>/<path>` or the **Nueva carpeta** button. An agent reads these files as
+instructions, so writing here is writing its prompt: with no `CONSOLE_TOKEN` anyone who reaches the port can
 do it. A running `pi` picks changes up on its next `/reload` or restart.
+
+## Docs API
+
+The console mounts the repository's `./docs` at `/data/docs` and exposes only that directory;
+this is the same host folder each agent sees at `/docs`. Unlike Workitems and Skills, Docs has
+no agent/scope segment in its API URLs:
+
+```bash
+curl localhost:4070/api/docs                             # list the shared documentation root
+curl 'localhost:4070/api/docs?recursive=1'                # all files below it, flat (max 5000)
+curl localhost:4070/api/docs/console.md                   # read a document
+curl -T guide.md localhost:4070/api/docs/guides/guide.md  # upload; creates missing parents
+curl -X POST localhost:4070/api/docs/guides/reference     # create an empty folder
+```
+
+Uploads do not replace an existing file by default; add `?overwrite=1` to the `PUT` URL when
+replacing one is intended. The **Docs** tab uses the same browser as Workitems and Skills:
+folder navigation, previews, Markdown/Mermaid and images, text editing, upload, and explicit
+folder creation. Creating folders
+is also available in the Workitems and Skills tabs. On all three trees, file uploads already
+created missing parent directories; `POST` adds the ability to create an empty folder directly.
+Uploads are capped by `CONSOLE_MAX_UPLOAD_MB` (50 MiB by default); there is no delete endpoint.
+Changes to Docs write into the repository's `docs/` folder and are immediately visible through
+agents' `/docs` mount. With no `CONSOLE_TOKEN`, anyone who can reach the console can edit these
+files, so use the same publishing precautions described below.
 
 ## Typing into an agent (Tmux tab)
 

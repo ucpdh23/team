@@ -13,6 +13,7 @@ const VIEWS = {
   tmux: () => import("/views/tmux.js"),
   workitems: () => import("/views/workitems.js"),
   skills: () => import("/views/skills.js"),
+  docs: () => import("/views/docs.js"),
 };
 const DEFAULT_VIEW = "sistema";
 
