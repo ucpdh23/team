@@ -14,6 +14,8 @@ pone en `PYTHONPATH` al ejecutar cada script.
 | | Para qué |
 |---|---|
 | `notify(to, content, key=None)` | Deja un aviso para un agente. Lo recoge su extensión en ≤15 s y se lo inyecta, arrancándole turno aunque esté ocioso. Si está apagado, espera. Con `key`, es idempotente: un reintento con la misma `key` tras un fallo del que no se sabe si llegó no duplica el aviso. |
+| `new_session(agent, key=None)` | Encola una orden tipada equivalente a `/new`, sin enviar texto al modelo. La extensión la ejecuta como `/team-new` y confirma después de crear la sesión; expira a los 15 minutos. Solo acepta los cinco roles del cluster. `key` deduplica reintentos mientras la orden sigue pendiente. |
+| `pending_inbox()` | Devuelve los avisos pendientes como metadatos, para que un job compruebe que no haya trabajo en cola antes de hacer un reset. |
 | `log(...)` | Como `print`, con hora. La salida se guarda entera y se ve en la pestaña Cron. |
 | `state` | Memoria del job entre ejecuciones (`state["ultimo_aviso"] = [...]`). Vive en la base de datos de la consola, porque el directorio de scripts está montado en solo lectura. |
 | `agents()` | Estado de cada agente conectado (`{nombre: {"status", "since_s", ...}}`), leído del hub de pi-link. `status` suele ser `idle`/`thinking`/`tool`/`compacting`, pero compara con `== "idle"` / `!= "idle"`, no des por hecho que el resto son exactamente esas cuatro cadenas. Un agente apagado no aparece; si el hub no responde, lanza `ConsoleError`. |

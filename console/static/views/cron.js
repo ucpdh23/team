@@ -200,7 +200,7 @@ function renderInbox(pending) {
     ? `<ul class="events">${pending.map((note) => `<li>
         <span class="mono dim">${Math.round(note.age_s / 60)} min</span>
         para <strong>${note.agent}</strong>
-        <span class="dim">${note.job ? "· " + note.job : ""} · ${note.chars} car.</span>
+        <span class="dim">${note.command === "new_session" ? "· nueva sesión" : `${note.job ? "· " + note.job : ""} · ${note.chars} car.`}</span>
         ${note.attempts > 1 ? '<span class="tag bad">reintentado</span>' : ""}
       </li>`).join("")}</ul>`
     : `<p class="meta">Nada pendiente: todo lo enviado a los agentes se ha entregado.</p>`;

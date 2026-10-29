@@ -388,7 +388,7 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
 
             # POST /api/inbox/<id>/ack no lleva cuerpo: se resuelve antes de leerlo.
             if parsed.path.startswith("/api/inbox/") and parsed.path.endswith("/ack"):
-                note_id = parsed.path[len("/api/inbox/"):-len("/ack")]
+                note_id = unquote(parsed.path[len("/api/inbox/"):-len("/ack")])
                 ok = inbox.ack(note_id)
                 self._send_json({"acked": ok}, status=200 if ok else 404,
                                 extra_headers=extra_headers)
@@ -401,7 +401,8 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 return
 
             if parsed.path not in ("/api/events", "/api/link/send", "/api/inbox/take",
-                                   "/api/human-notify", "/api/cron/jobs", "/api/cron/state") \
+                                   "/api/agents/new-session", "/api/human-notify",
+                                   "/api/cron/jobs", "/api/cron/state") \
                     and not (len(cron_run_now) == 1 and parsed.path.startswith("/api/cron/jobs/")):
                 self.send_error(404, "Not found")
                 return
@@ -413,6 +414,30 @@ def _make_handler(config: Config, docker: DockerAPI | None, events: EventStore,
                 payload = json.loads(body.decode("utf-8"))
             except (ValueError, UnicodeDecodeError) as exc:
                 self._send_json({"error": f"json inválido: {exc}"}, status=400)
+                return
+
+            if parsed.path == "/api/agents/new-session":
+                if not isinstance(payload, dict):
+                    self._send_json({"error": "se espera un objeto {agent, id?}"}, status=400)
+                    return
+                agent = str(payload.get("agent") or "").strip()
+                if agent not in costs.ROLES:
+                    self._send_json({"error": f"agente desconocido: {agent}"}, status=400)
+                    return
+                job = payload.get("job")
+                note_id = payload.get("id")
+                if job is not None and not isinstance(job, str):
+                    self._send_json({"error": "job debe ser texto"}, status=400)
+                    return
+                if note_id is not None and not isinstance(note_id, str):
+                    self._send_json({"error": "id debe ser texto"}, status=400)
+                    return
+                try:
+                    result = inbox.send_command(agent, "new_session", job, note_id)
+                except ValueError as exc:
+                    self._send_json({"error": str(exc)}, status=400)
+                    return
+                self._send_json(result, status=202, extra_headers=extra_headers)
                 return
 
             if parsed.path == "/api/human-notify":

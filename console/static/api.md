@@ -42,6 +42,7 @@ Los **agentes** válidos son `manager`, `backend`, `frontend`, `devops`, `cypres
 | [Sistema](#sistema) | `GET /api/system…`, `/api/health` | Contenedores, red, disco y estado vivo de cada agente. |
 | [Actividad](#actividad-eventos) | `GET/POST/DELETE /api/events…` | Quién habló con quién (solo metadatos) y uso de skills. |
 | [Avisos a un agente](#avisos-a-un-agente-inbox) | `POST /api/link/send`, `/api/inbox…` | Dejar un mensaje que el agente recibe aunque esté inactivo. |
+| [Sesiones nuevas](#sesiones-nuevas) | `POST /api/agents/new-session` | Encolar el equivalente a `/new` para un agente, sin un turno de modelo. |
 | [Avisos al humano](#avisos-al-humano) | `POST /api/human-notify` | Notificación del navegador a la persona. |
 | [Cron](#cron) | `/api/cron/…` | Programar scripts del catálogo, ver su historial y estado. |
 | [Tmux](#tmux) | `GET /api/tmux/panes…` | Leer lo que hay en pantalla en la sesión de un agente. |
@@ -232,8 +233,8 @@ la extensión del agente recoge su cola.
 
 | Petición | Resultado |
 |---|---|
-| `POST /api/link/send` `{"to","content","job"?,"id"?}` | Encola un aviso (`202`). `content` ≤ 8000 caracteres. Con `id`, el reintento es idempotente: no se entrega dos veces. |
-| `GET /api/inbox[?agent=<a>]` | Avisos pendientes (sin el texto, solo tamaño y estado). |
+| `POST /api/link/send` `{"to","content","job"?,"id"?}` | Encola un aviso (`202`). `content` ≤ 8000 caracteres. Con `id`, el reintento es idempotente: no se entrega dos veces mientras siga pendiente. |
+| `GET /api/inbox[?agent=<a>]` | Pendientes sin texto, solo tamaño/estado; `command` aparece en órdenes tipadas como `/new`. |
 | `POST /api/inbox/take` `{"agent"}` | Lo que recoge el agente (cambia estado: marca entregado). Uso de la extensión. |
 | `POST /api/inbox/<id>/ack` | Confirma la entrega. Uso de la extensión. |
 
@@ -243,6 +244,25 @@ curl $H -X POST "$C/api/link/send" -H 'Content-Type: application/json' \
 ```
 
 Los avisos caducan sin entregar pasadas `CONSOLE_INBOX_TTL_HOURS` (24 por defecto).
+
+## Sesiones nuevas
+
+`POST /api/agents/new-session` con `{"agent","job"?,"id"?}` encola una orden tipada para la
+extensión `team-console` y responde `202` con el id encolado. No acepta comandos arbitrarios ni
+contenido de prompt: solo inicia una sesión Pi nueva mediante
+`/team-new`, equivalente al `/new` integrado. El agente la confirma tras cambiar de sesión; si
+no puede procesarla, la orden se reintenta y caduca a los 15 minutos.
+
+```bash
+curl $H -X POST "$C/api/agents/new-session" -H 'Content-Type: application/json' \
+     -d '{"agent":"backend","job":"reset-mañana","id":"reset-mañana:backend"}'
+```
+
+La API solo verifica que el agente pertenezca a este cluster; el script cron debe comprobar el
+estado de **todos** los agentes antes de encolar las cinco órdenes. La extensión vuelve a
+comprobar que el agente destinatario esté ocioso y sin mensajes en cola antes de cambiar su
+sesión. Una sesión nueva limpia el contexto actual, pero no borra el fichero de la sesión
+anterior, el workspace, el repositorio ni los volúmenes del contenedor.
 
 ## Avisos al humano
 

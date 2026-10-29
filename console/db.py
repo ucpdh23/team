@@ -21,7 +21,7 @@ from pathlib import Path
 
 # Se sube cuando cambia el esquema; `migrate()` aplica lo que falte. PRAGMA user_version viene
 # en el propio fichero, así que no hace falta una tabla de versiones.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS inbox (
   id         TEXT PRIMARY KEY,
   agent      TEXT NOT NULL,      -- destinatario
   content    TEXT NOT NULL,
+  command    TEXT,               -- acción tipada (p. ej. new_session), si no es un aviso de texto
   job        TEXT,               -- job de cron que lo generó, si viene de ahí
   created_ts INTEGER NOT NULL,
   expires_ts INTEGER NOT NULL,   -- un aviso entregado tarde es ruido, no información
@@ -126,6 +127,11 @@ class Database:
             if current >= SCHEMA_VERSION:
                 return
             self._conn.executescript(_SCHEMA)
+            # CREATE TABLE IF NOT EXISTS no añade columnas a las bases persistentes ya creadas.
+            # Migración aditiva para las consolas que venían del esquema 4.
+            inbox_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(inbox)")}
+            if "command" not in inbox_columns:
+                self._conn.execute("ALTER TABLE inbox ADD COLUMN command TEXT")
             self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             self._conn.commit()
 

@@ -31,7 +31,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
-__all__ = ["notify", "log", "state", "agents", "ado", "job_name", "run_id", "ConsoleError"]
+__all__ = ["notify", "new_session", "pending_inbox", "log", "state", "agents", "ado", "job_name", "run_id", "ConsoleError"]
 
 CONSOLE_URL = (os.environ.get("CONSOLE_URL") or "http://127.0.0.1:4070").rstrip("/")
 TIMEOUT_S = 10
@@ -94,6 +94,29 @@ def notify(to: str, content: str, key: str | None = None) -> str:
         payload["id"] = note_id
     result = _request("POST", "/api/link/send", payload)
     return (result or {}).get("id", "")
+
+
+def new_session(agent: str, key: str | None = None) -> str:
+    """Pide al agente que empiece una sesión Pi limpia, equivalente a `/new`.
+
+    La orden se entrega por la extensión del agente y no consume un turno del modelo. Solo
+    admite agentes del cluster; caduca a los 15 minutos si no puede entregarse. `key` permite
+    reintentar idempotentemente dentro del mismo job (se combina con `job_name`). Devuelve el
+    id de la orden encolada; la finalización ocurre de forma asíncrona.
+    """
+    agent = (agent or "").strip()
+    if not agent:
+        raise ValueError("falta el agente")
+    payload = {"agent": agent, "job": job_name or None}
+    if key:
+        payload["id"] = f"{job_name}:{key}" if job_name else key
+    result = _request("POST", "/api/agents/new-session", payload)
+    return (result or {}).get("id", "")
+
+
+def pending_inbox() -> list[dict]:
+    """Avisos pendientes de entrega, solo con metadatos (sin contenido)."""
+    return (_request("GET", "/api/inbox") or {}).get("pending", [])
 
 
 def agents() -> dict[str, dict]:

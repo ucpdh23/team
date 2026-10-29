@@ -11,7 +11,8 @@ El reparto de responsabilidades es el que define esta pieza:
 - **Cuándo** es de aquí: un planificador en el propio proceso del servidor, con una sola
   fuente de verdad (la base de datos) en vez de un crontab paralelo.
 - **Con qué hablar con el equipo** lo pone `console_sdk` (ver console/sdk/): `notify()` deja un
-  aviso en la cola para un agente, y `state` recuerda cosas entre ejecuciones.
+  aviso en la cola para un agente, `new_session()` encola una orden tipada de `/new`, y `state`
+  recuerda cosas entre ejecuciones.
 """
 
 from __future__ import annotations

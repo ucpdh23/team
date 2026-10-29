@@ -75,15 +75,66 @@ export default function (pi: ExtensionAPI) {
   const baseUrl = (process.env.CONSOLE_URL ?? "").trim().replace(/\/+$/, "");
   const self = (process.env.PI_LINK_SELF ?? "").trim();
 
-  // Sin consola configurada la extensión no existe: ni cola, ni temporizadores, ni handlers.
-  // Es lo que permite apagarla entera con CONSOLE_URL= en .env.
-  if (!baseUrl || !self) return;
-
   // Con CONSOLE_TOKEN definido, la consola exige esta cabecera en TODA petición, incluida la
   // de esta extensión — sin ella, cada reporte de actividad y cada recogida de avisos del
   // cron fallan con 401 en silencio (ver la captura de errores de cada fetch de abajo).
   const token = (process.env.CONSOLE_TOKEN ?? "").trim();
   const authHeaders: Record<string, string> = token ? { "x-console-token": token } : {};
+
+  async function ackNote(id: string): Promise<void> {
+    const response = await fetch(`${baseUrl}/api/inbox/${encodeURIComponent(id)}/ack`, {
+      method: "POST",
+      headers: authHeaders,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`ack de orden HTTP ${response.status}`);
+  }
+
+  // La extensión ejecuta la transición con ctx.newSession() desde un command handler; Pi
+  // reserva las operaciones de reemplazo de sesión a este contexto, no a event handlers.
+  // El argumento opcional se usa solo para confirmar una orden que vino de la consola.
+  pi.registerCommand("team-new", {
+    description: "Empezar una sesión nueva, equivalente a /new",
+    handler: async (args, ctx) => {
+      let noteId: string | undefined;
+      const argument = args.trim();
+      if (argument) {
+        const match = argument.match(/^--inbox-id=([A-Za-z0-9_-]+)$/);
+        if (!match) {
+          ctx.ui.notify("Uso: /team-new", "error");
+          return;
+        }
+        try {
+          noteId = Buffer.from(match[1], "base64url").toString("utf8");
+        } catch {
+          ctx.ui.notify("Id de orden no válido", "error");
+          return;
+        }
+      }
+      if (ctx.mode !== "tui") {
+        ctx.ui.notify("/team-new necesita la sesión interactiva de Pi", "error");
+        return;
+      }
+      if (!ctx.isIdle() || ctx.hasPendingMessages()) {
+        ctx.ui.notify("No se reinicia la sesión: Pi está ocupado o tiene mensajes pendientes", "warning");
+        return;
+      }
+
+      const result = await ctx.newSession({
+        withSession: async (replacementCtx) => {
+          if (noteId && baseUrl) await ackNote(noteId);
+          replacementCtx.ui.notify("Sesión nueva iniciada", "info");
+        },
+      });
+      if (result.cancelled) {
+        ctx.ui.notify("La creación de sesión nueva fue cancelada", "warning");
+      }
+    },
+  });
+
+  // Sin consola configurada no hay cola, temporizadores ni handlers de observabilidad. El
+  // comando /team-new sigue disponible manualmente en esta instalación.
+  if (!baseUrl || !self) return;
 
   const endpoint = `${baseUrl}/api/events`;
   const queue: Event[] = [];
@@ -200,7 +251,7 @@ export default function (pi: ExtensionAPI) {
    * más tarde marcándolo como repetido, en vez de darlo por entregado y perderlo.
    */
   async function collectInbox(): Promise<void> {
-    let notes: Array<{ id: string; content: string; job?: string; redelivered?: boolean }>;
+    let notes: Array<{ id: string; content: string; command?: string; job?: string; redelivered?: boolean }>;
     try {
       const response = await fetch(`${baseUrl}/api/inbox/take`, {
         method: "POST",
@@ -215,6 +266,15 @@ export default function (pi: ExtensionAPI) {
     }
 
     for (const note of notes) {
+      if (note.command === "new_session") {
+        // sendUserMessage con expansión despacha los comandos de extensión sin llamar al modelo.
+        // /team-new reemplaza la sesión y confirma la orden solo tras el cambio exitoso.
+        const encodedId = Buffer.from(note.id, "utf8").toString("base64url");
+        pi.sendUserMessage(`/team-new --inbox-id=${encodedId}`, { expandPromptTemplates: true });
+        return;
+      }
+      if (note.command) continue; // nunca inyectar una orden desconocida como texto al agente
+
       // Encabezado explícito: el agente tiene que poder distinguir de un vistazo un aviso de
       // la consola de un mensaje de un compañero, sin que nadie se lo explique en su AGENTS.md.
       const header = note.job

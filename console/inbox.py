@@ -11,7 +11,9 @@ que esconderse en otro grupo deja a la consola invisible *y* muda).
 La salida es no usar pi-link: la extensión `team-console`, que ya vive dentro del proceso `pi`
 de cada agente, pregunta cada pocos segundos si hay algo para él y lo inyecta con
 `pi.sendMessage(..., { triggerTurn: true })` — el mismo mecanismo exacto con el que pi-link
-entrega sus mensajes, así que el agente arranca turno aunque estuviera ocioso.
+entrega sus mensajes, así que el agente arranca turno aunque estuviera ocioso. También lleva
+órdenes tipadas de control (hoy, iniciar una sesión nueva), que la extensión despacha a un
+command handler sin convertirlas en texto del prompt.
 
 Lo que se gana frente a un cliente WebSocket registrado, además de no tener presencia:
 confirmación de entrega real (`ack`), y que un aviso para un agente apagado espere en vez de
@@ -20,7 +22,6 @@ perderse con un "terminal not found".
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import time
 import uuid
@@ -34,6 +35,9 @@ MAX_TAKE = 10
 #: Tope de una clave de idempotencia (ver `send`). Generosa de sobra para "job:lo-que-sea"
 #: y corta la posibilidad de que un script meta ahí algo que no es una clave.
 MAX_ID_CHARS = 200
+#: Una orden de sesión no debe quedarse esperando hasta el día siguiente si un agente cayó.
+COMMAND_TTL_MS = 15 * 60 * 1000
+SUPPORTED_COMMANDS = {"new_session"}
 
 
 def now_ms() -> int:
@@ -49,30 +53,37 @@ class Inbox:
     # ------------------------------------------------------------------- envío
 
     def send(self, agent: str, content: str, job: str | None = None,
-            note_id: str | None = None) -> dict:
-        """Encola un aviso. Con `note_id`, la llamada es idempotente.
-
-        Un script que no sepa si una llamada anterior llegó a procesarse (p. ej. el envío tuvo
-        éxito pero la respuesta se perdió por el camino) puede reintentar con el mismo
-        `note_id`: si ya existe un aviso con ese id, se devuelve tal cual en vez de encolar
-        uno nuevo, así que el agente nunca recibe el mismo aviso dos veces por un reintento.
-        Sin `note_id` (el caso de siempre) cada llamada genera uno nuevo, como antes.
-        """
-        agent = (agent or "").strip()
+             note_id: str | None = None) -> dict:
+        """Encola un aviso de texto. Con `note_id`, la llamada es idempotente."""
         content = (content or "").strip()
-        if not agent:
-            raise ValueError("falta el destinatario ('to')")
         if not content:
             raise ValueError("el aviso no puede estar vacío")
         if len(content) > MAX_CONTENT_CHARS:
             # Un aviso es un párrafo y una lista, no un volcado: lo que se inyecta se paga en
             # contexto del agente que lo recibe.
             raise ValueError(f"el aviso supera {MAX_CONTENT_CHARS} caracteres")
+        return self._enqueue(agent, content, job, note_id, None,
+                             self.ttl_hours * 3_600_000)
+
+    def send_command(self, agent: str, command: str, job: str | None = None,
+                     note_id: str | None = None) -> dict:
+        """Encola una orden tipada de control, nunca texto ejecutable arbitrario."""
+        if command not in SUPPORTED_COMMANDS:
+            raise ValueError(f"orden no permitida: {command}")
+        return self._enqueue(agent, "", job, note_id, command, COMMAND_TTL_MS)
+
+    def _enqueue(self, agent: str, content: str, job: str | None, note_id: str | None,
+                 command: str | None, ttl_ms: int) -> dict:
+        agent = (agent or "").strip()
+        if not agent:
+            raise ValueError("falta el destinatario ('to')")
 
         note_id = (note_id or "").strip()[:MAX_ID_CHARS]
         if note_id:
             existing = self._by_id(note_id)
             if existing:
+                if existing.get("command") != command or existing.get("agent") != agent:
+                    raise ValueError("la clave ya se usó para otro destinatario o tipo de aviso")
                 return existing
         else:
             note_id = str(uuid.uuid4())
@@ -80,23 +91,28 @@ class Inbox:
         created = now_ms()
         try:
             self.db.execute(
-                "INSERT INTO inbox (id, agent, content, job, created_ts, expires_ts) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (note_id, agent, content, job, created, created + self.ttl_hours * 3_600_000),
+                "INSERT INTO inbox (id, agent, content, command, job, created_ts, expires_ts) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (note_id, agent, content, command, job, created, created + ttl_ms),
             )
         except sqlite3.IntegrityError:
             # Otra petición con la misma clave ganó la carrera entre el SELECT de arriba y
             # este INSERT: exactamente lo que la idempotencia debía evitar, no un fallo.
-            return self._by_id(note_id)
-        return {"id": note_id, "queued": True, "agent": agent, "chars": len(content)}
+            existing = self._by_id(note_id)
+            if existing and existing.get("command") == command and existing.get("agent") == agent:
+                return existing
+            raise ValueError("la clave ya se usó para otro destinatario o tipo de aviso")
+        return {"id": note_id, "queued": True, "agent": agent, "chars": len(content),
+                **({"command": command} if command else {})}
 
     def _by_id(self, note_id: str) -> dict | None:
-        rows = self.db.query("SELECT agent, content FROM inbox WHERE id = ?", (note_id,))
+        rows = self.db.query("SELECT agent, content, command FROM inbox WHERE id = ?", (note_id,))
         if not rows:
             return None
         row = rows[0]
         return {"id": note_id, "queued": True, "agent": row["agent"],
-                "chars": len(row["content"]), "deduped": True}
+                "chars": len(row["content"]), "deduped": True,
+                **({"command": row["command"]} if row["command"] else {})}
 
     # ---------------------------------------------------------------- entrega
 
@@ -126,6 +142,7 @@ class Inbox:
                 "id": row["id"],
                 "content": row["content"],
                 "job": row["job"],
+                **({"command": row["command"]} if row["command"] else {}),
                 "created_ts": row["created_ts"],
                 # El agente lo enseña como tal: un aviso repetido confunde si no se avisa.
                 "redelivered": row["attempts"] > 0,
@@ -151,6 +168,7 @@ class Inbox:
                 "ok": True,
                 "attempts": row["attempts"],
                 **({"job": row["job"]} if row["job"] else {}),
+                **({"command": row["command"]} if row["command"] else {}),
             },
         }])
         return True
@@ -160,7 +178,7 @@ class Inbox:
     def pending(self, agent: str | None = None) -> list[dict]:
         """Lo que sigue sin entregarse, para la UI. No toca nada."""
         now = now_ms()
-        sql = "SELECT id, agent, job, created_ts, expires_ts, taken_ts, attempts, " \
+        sql = "SELECT id, agent, job, command, created_ts, expires_ts, taken_ts, attempts, " \
               "LENGTH(content) AS chars FROM inbox"
         params: tuple = ()
         if agent:
@@ -176,6 +194,7 @@ class Inbox:
             "expires_in_s": max(0, (r["expires_ts"] - now) // 1000),
             "attempts": r["attempts"],
             "taken": r["taken_ts"] is not None,
+            **({"command": r["command"]} if r["command"] else {}),
         } for r in self.db.query(sql, params)]
 
     def purge(self) -> int:
