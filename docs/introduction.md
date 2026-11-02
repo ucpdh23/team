@@ -6,7 +6,7 @@ real time. This document is written for a **human** joining the project: it expl
 this is, who's on the team, and how to think about working alongside it. For the technical
 setup (how the containers are wired, how pi-link works under the hood, how to connect to a
 session) see the root [`README.md`](../README.md). For the detailed day-to-day workflow
-(stages, ADO Tasks, local workitems), see [`work-procedures.md`](work-procedures.md).
+(work procedures, ADO Tasks, local workitems), see [`work-procedures.md`](work-procedures.md).
 
 ## What this is
 
@@ -86,13 +86,18 @@ never assigned work, and if you stop it the five agents carry on exactly as befo
   [`work-procedures.md`](work-procedures.md). This is deliberate: it keeps you in the loop on
   scope decisions instead of discovering them after the fact.
 - **Some things always require your explicit sign-off** — running tests that mutate a real
-  database, executing SQL against a shared environment, merging a Pull Request, or anything
+  database without your supervision (a backup and restore around them is then mandatory; if you
+  supervise step by step, you decide), executing SQL against a shared environment, merging a Pull Request, or anything
   destructive/irreversible. Agents will ask rather than assume. See the "Authorization
   boundaries" section of `work-procedures.md` for the full list.
 - **Work is tracked in two places on purpose**: a private `workitems/` folder inside each
-  role's own project (the working notes and technical detail that role uses day to day, not
-  shared with the rest of the team) and Azure DevOps Boards (the record of what happened,
-  visible to anyone outside this repo). Neither replaces the other.
+  role's own project (one folder per workitem with a central `README.md`: the working notes and
+  technical detail of that role, not shared with the rest of the team) and Azure DevOps Boards
+  (the record of what happened, whose ticket states `manager` keeps and updates in summaries
+  rather than message by message). Neither replaces the other.
+- **There is more than one way of working**: each piece of work follows a procedure (standard,
+  minor fix, hotfix, spike, infra-only) defined as a skill, named in the ADO Task, and adaptable
+  when the case requires it.
 - **You can drop into any agent's session at any time** (`docker exec -it pi-<role> tmux
   attach -t pi`) to see exactly what it's doing, ask it something directly, or redirect it —
   the team structure doesn't require you to go through `manager` for everything, it's just
@@ -101,9 +106,9 @@ never assigned work, and if you stop it the five agents carry on exactly as befo
 
 ## Where to go next
 
-- [`work-procedures.md`](work-procedures.md) — the full workflow: stages, what each role
-  does at each stage, and exactly what changes in Azure DevOps and in the local `workitems/`
-  folder along the way.
+- [`work-procedures.md`](work-procedures.md) — the available work procedures, how one is chosen
+  and adapted, and the conventions that apply to all of them; the stage-by-stage detail lives in
+  the `work-procedure-*` skills.
 - [`../README.md`](../README.md) — the role model, how to run and connect to the containers,
   authenticate, and troubleshoot.
 - [`../ARCHITECTURE.md`](../ARCHITECTURE.md) — technical detail: how pi-link achieves

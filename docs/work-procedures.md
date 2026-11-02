@@ -23,21 +23,16 @@ place:
   (`link_list`). It's the conversation; Azure DevOps is the record of what the conversation
   produced.
 - **Each role's own `workitems/` folder**, inside its own project workspace
-  (`/workspace/workitems/`, i.e. part of `backend`'s own repo, `frontend`'s own repo, and so
-  on) is a **private activity log** — not shared, not mounted for any other role to see, not
-  required by this procedure. It's simply a place for an agent to keep its own notes on what
-  it worked on and why, versioned in that project's own git history (managed by the agent
-  itself via ordinary git commands), useful mainly for that role's own future reference. Two
-  roles working on the same piece of work do **not** read each other's `workitems/` —
-  anything that needs to cross that boundary goes through pi-link or Azure DevOps instead.
-
-If you keep a private `workitems/` log, the same lightweight convention as before still works
-well for it — it's just no longer part of how the team coordinates:
+  (`/workspace/workitems/`), is that role's **record of the work**: every piece of work it does is
+  reflected there, one folder per workitem. It is not shared: other roles do not read it, anything that
+  must cross roles goes through pi-link or Azure DevOps. It is versioned in that project's own git.
 
 ```
 workitems/
-  <YYYY-MM-DD>-<short-slug>/
-    README.md          # what you did, why, decisions, links to the Task(s) involved
+  <id>-short_name/            # ADO id, or <yyyymmdd>-short_name when there is no ADO item
+    README.md                 # central file: summary bullets, procedure + adaptations, status,
+                              # decisions, analysis with diagrams, test results, links (ADO, branches, PRs)
+    ...                       # related files and resources (diagrams, logs, screenshots), linked from README
 ```
 
 ### Azure DevOps configuration
@@ -68,284 +63,43 @@ given piece of work is in:
 | **devops** | Keep infrastructure, environments and pipelines consistent with what backend/frontend need; execute anything destructive (DB resets, deployments) only with explicit human authorization, never unilaterally. |
 | **cypress** | Independently verify that backend and frontend actually work together from a user's perspective; report failures precisely enough (which step, which screenshot) that they're actionable. |
 
-## The eight stages
+## Work procedures
 
-Every piece of work — a new feature, a bug fix, a non-trivial refactor — moves through these
-stages in order. Trivial changes (a typo, a one-line doc fix) don't need the full ceremony;
-use judgment, and when in doubt, run the full procedure — skipping it is the more expensive
-mistake.
+There is not one single procedure: each is a **skill** in `agents/_shared/pi/skills/`, visible to every
+role, and each piece of work picks the one that fits.
 
-```
-analysis → approved → branches-created → implementing → unit-testing
-   → functional-testing → merge-ready → completed
-```
+| Skill | Use it for |
+|---|---|
+| `work-procedure-standard` | Default. Features, non-trivial fixes, refactors: the 8 stages `analysis → approved → branches-created → implementing → unit-testing → functional-testing → merge-ready → completed`, with all `az` commands and the Task/diagram conventions. |
+| `work-procedure-minor-fix` | Literals, an icon, a style tweak, a typo: one Task, no question round, minimal verification. |
+| `work-procedure-hotfix` | Urgent defect in a live or shared environment: short triage, branch from production, regression test, post-fix report. |
+| `work-procedure-spike` | Time-boxed investigation: the deliverable is a report with options and a recommendation, nothing merged. |
+| `work-procedure-infra-only` | Infrastructure/CI/CD changes carried out by devops alone. |
 
-### 1. Analysis
-
-**Goal:** turn a vague human request into a scoped, unambiguous piece of work, without
-writing any code yet.
-
-**Who's involved:** `manager` drives; any role that's plausibly affected is consulted.
-
-**What happens:**
-1. The human gives `manager` a goal or requirement (in chat, or by pointing at an existing
-   Azure DevOps User Story/Bug).
-2. `manager` identifies which roles are plausibly affected (not every piece of work touches
-   all four specialists) and asks each one, via `link_prompt`, to assess technical
-   feasibility and raise any open question — **implementation does not start here**.
-3. `manager` consolidates every role's open questions into a single list, removing
-   duplicates and grouping by topic.
-4. If there's a corresponding Azure DevOps User Story/Bug, `manager` publishes the
-   consolidated list as a **comment** on that ticket (not as a Task — see "Comments vs.
-   Tasks" below) and waits for the human to answer directly in Azure DevOps.
-5. When the human replies, `manager` reads the actual comment in Azure DevOps (never assumes
-   a verbal summary is complete) and checks it question by question against the list. Any
-   ambiguity or missing answer triggers a new comment round — this can iterate more than
-   once.
-
-**Azure DevOps changes:** one or more comments added to the parent User Story/Bug (no Tasks
-yet, no status change on the ticket itself). The comment thread itself is the record of what
-was asked and answered — no separate document is needed to track it.
-
-**Exit criteria:** every open question has an explicit, unambiguous answer.
-
-#### Comments vs. Tasks
-
-This distinction matters enough to call out on its own: **comments** are for open questions
-that need a human decision before scope can be closed. **Tasks** are for technical work that
-is already fully defined. Never create a Task just to ask something — it pollutes the board
-with items that don't represent real, startable work, and it hides genuine open decisions
-inside what looks like a work item.
-
-### 2. Approved
-
-**Goal:** lock in the scope, and translate it into trackable Azure DevOps work.
-
-**Who's involved:** `manager`.
-
-**What happens:**
-1. The human gives an explicit go-ahead (in chat, or by resolving the ticket's discussion).
-2. `manager` creates the Azure DevOps Task breakdown: one or more Tasks per affected role,
-   each titled with the role's prefix (see naming conventions below). Since there's no
-   separate shared document to point to, **each Task's description must stand on its own**:
-   summary of the change, affected modules/files, acceptance criteria, and at least one
-   **ASCII diagram** — written as settled decisions, not open questions (see "Diagrams in
-   Tasks" below).
-3. Each Task is linked as a **child** of the parent User Story/Bug.
-4. If a User Story/Bug exists, `manager` moves it to **Active**.
-
-#### Diagrams in Tasks
-
-Every Task's description must include **at least one ASCII diagram**, inside a fenced code
-block so it renders monospaced and stays aligned in the Azure DevOps description field. Pick
-whichever kind actually clarifies the change — don't force all four:
-
-- **Flow diagram** — the execution flow of the feature/change (most common default when
-  nothing more specific applies).
-- **Class diagram** — when the change introduces inheritance, new classes, or restructures
-  existing ones.
-- **Sequence diagram** — when the change involves interaction between multiple
-  components/services (e.g. `backend` calling an external system, or a multi-step
-  request/response between `frontend` and `backend`).
-- **Data diagram** — when the change alters the data model (new tables, relationships,
-  indexes).
-
-The point isn't decoration: a diagram forces the role writing the Task to actually work out
-the shape of the change before implementation starts, and gives the other role (and the
-human reviewer) something concrete to check the implementation against later. A Task
-description with acceptance criteria but no diagram is treated as incomplete — send it back
-for another pass rather than linking it as ready.
-
-Example (flow diagram, plain text, no external tooling required):
+**How a piece of work picks one.** `manager` chooses the procedure when it creates the ADO Task and writes
+it at the top of the Task description:
 
 ```
-User submits discount code
-        |
-        v
-[frontend] POST /api/checkout { code }
-        |
-        v
-[backend] CheckoutService.applyDiscount(code)
-        |
-        +-- invalid/expired --> 422 { error }
-        |
-        +-- valid --> recompute total --> 200 { total, discount }
+Procedure: work-procedure-hotfix
+Adaptations: Omitted cypress run. Reason: no UI impact. Approved by: manager (2026-11-02)
 ```
 
-**Azure DevOps changes:** N Tasks created (one set per affected role), each self-contained
-and `parent`-linked to the User Story; the User Story itself moves to **Active**.
+- No `Procedure:` line means `work-procedure-standard`.
+- A procedure can be adapted when the case requires it. The adaptation (what changes, why, who approved)
+  is recorded in the Task header and in the role's workitem README. Any role may propose one; `manager`
+  decides. An adaptation touching an action that needs the human's authorization must be approved by the
+  human.
+- No adaptation, and no procedure, relaxes the [authorization boundaries](#authorization-boundaries).
 
-```bash
-# Write the full description locally first (summary + affected modules + acceptance
-# criteria + diagram) so the ASCII diagram's alignment survives intact, then pass its
-# content as --description. Fighting a diagram's indentation through inline shell
-# escaping is not worth it — always go through a file for anything with a diagram.
-cat > /tmp/task-backend-discount.txt <<'EOF'
-Add server-side validation for discount codes at checkout. Codes do not stack. Affects
-CheckoutService and the /api/checkout endpoint. Acceptance: invalid/expired codes return a
-422 with a clear error; valid codes reduce the order total correctly.
+**Who keeps ticket state.** `manager` owns the state of the User Story/Bug and Tasks and closes them. Other
+roles report progress to `manager` over pi-link; `manager` gathers it in its own workitem README and
+publishes to ADO at meaningful points (questions after analysis, Tasks on approval, milestone or blocker
+summaries, closing summary) instead of on every message.
 
-Flow:
-User submits discount code
-        |
-        v
-[frontend] POST /api/checkout { code }
-        |
-        v
-[backend] CheckoutService.applyDiscount(code)
-        |
-        +-- invalid/expired --> 422 { error }
-        |
-        +-- valid --> recompute total --> 200 { total, discount }
-EOF
-
-az boards work-item create \
-  --type Task \
-  --title "[backend] Add discount-code validation to checkout" \
-  --description "$(cat /tmp/task-backend-discount.txt)" \
-  --output json   # capture the returned id
-
-# Link it as a child of the parent User Story
-az boards work-item relation add \
-  --id <TASK_ID> \
-  --relation-type parent \
-  --target-id <USER_STORY_ID>
-```
-
-Azure DevOps' description field renders plain text as HTML, so it won't preserve monospaced
-alignment on its own — wrapping the diagram between a line like `Flow:` and blank lines
-above/below is enough for it to stay readable; if your organization's process template
-supports Markdown/HTML in that field, prefer a real code block instead.
-
-**Exit criteria:** all Tasks exist in Azure DevOps, linked to the parent ticket, and every
-affected role agrees its Task's acceptance criteria are clear enough to start branching.
-
-### 3. Branches created
-
-**Goal:** give every affected role an isolated place to work.
-
-**Who's involved:** each affected role creates its own branch; `manager` tracks it.
-
-**What happens:** each role creates a feature branch following the project's naming
-convention (see below) off the appropriate base branch, and reports the branch name back to
-`manager` over pi-link.
-
-**Azure DevOps changes:** none required at this point (some teams also link the branch to
-its Task in the Repos UI — optional, not required by this procedure).
-
-**Exit criteria:** every affected role has a branch and knows its own Task ID.
-
-### 4. Implementing
-
-**Goal:** each role does its actual work.
-
-**Who's involved:** each affected role, coordinating directly with each other over pi-link
-where their work touches a shared boundary (e.g. `backend` and `frontend` agreeing on a
-request/response shape) — this doesn't need to be routed through `manager`.
-
-**What happens:**
-1. Each role moves its own Task(s) to **Active** in Azure DevOps when it actually starts
-   working on them (not before — an Active Task should mean active work, not "queued").
-2. Roles implement against the acceptance criteria written in their Task.
-3. `manager` doesn't sit idle here: it periodically checks in (`link_prompt` /
-   `link_list`) with each role, and escalates to the human immediately if a role reports a
-   blocker — it does not wait for a status-check cadence to surface a blocker. If a blocker
-   or scope adjustment is significant enough to matter later, `manager` records it as a
-   comment on the relevant Task.
-
-**Azure DevOps changes:** each involved Task moves to **Active** (independently, whenever
-that role actually starts).
-
-**Exit criteria:** every affected role reports its implementation complete and ready for its
-own unit tests.
-
-### 5. Unit testing
-
-**Goal:** each role verifies its own change in isolation before it's considered done.
-
-**Who's involved:** each affected role runs its own unit tests; `manager` collects results.
-
-**What happens:** each role runs the unit tests relevant to its change (not necessarily the
-full suite) and reports pass/fail to `manager` over pi-link. Failures are fixed before moving
-on — this stage does not "pass" partially.
-
-**Azure DevOps changes:** none required (Task stays Active).
-
-**Exit criteria:** unit tests pass for every affected role.
-
-### 6. Functional testing
-
-**Goal:** verify the pieces actually work together, not just in isolation.
-
-**Who's involved:** `manager` coordinates; `backend` and `frontend` bring their pieces up
-together; `cypress` (when the change is UI-observable) runs end-to-end verification.
-
-**What happens:**
-1. `manager` asks `backend` and `frontend` to have their environments ready together (e.g.
-   both running locally against the same data).
-2. If the change is visible in the UI, `manager` asks `cypress` to validate it — remember
-   `cypress` is not a permanently-connected agent (see `introduction.md`); check `link_list`
-   before assuming it's available, and don't treat a Cypress failure alone as proof of a
-   business-logic regression — it's evidence of a UI/selector/timing problem until shown
-   otherwise. Business-logic correctness is confirmed by backend/frontend's own functional
-   tests, not by Cypress.
-3. Any defect found here goes back to stage 4 for the affected role(s) — this stage doesn't
-   advance until the integrated behavior is correct.
-
-**Azure DevOps changes:** none required (Task stays Active); a defect found here that's
-significant enough to track independently can be filed as its own Bug, linked back to the
-parent User Story.
-
-**Exit criteria:** the integrated behavior matches the accepted scope from stage 1–2, with no
-open defects.
-
-### 7. Merge-ready
-
-**Goal:** get the changes in front of a human reviewer.
-
-**Who's involved:** each affected role opens its own Pull Request.
-
-**What happens:** each role pushes its branch and opens a PR against the base branch,
-referencing its own Task ID in the PR description/work-item link. No PR is merged by an
-agent — merging is always a human decision.
-
-**Azure DevOps changes:** none required beyond the PR itself being linked to its Task (most
-`az repos pr create` invocations can do this via `--work-items`).
-
-```bash
-az repos pr create \
-  --repository <repo-name> \
-  --source-branch feature/<task-id>-checkout-discount-codes \
-  --target-branch main \
-  --title "Add discount-code validation to checkout" \
-  --description "Implements <TASK_ID>." \
-  --work-items <TASK_ID>
-```
-
-**Exit criteria:** every affected role's PR is open and passing CI; nothing is pending except
-human review.
-
-### 8. Completed
-
-**Goal:** close the loop, formally.
-
-**Who's involved:** each role closes its own Task once its PR is merged; `manager` closes
-out the parent ticket.
-
-**What happens:**
-1. As each PR is approved and merged by a human, the owning role moves its own Task to
-   **Closed**.
-2. Once every Task under the User Story is Closed, `manager` moves the parent User Story/Bug
-   to **Resolved** (or **Closed**, depending on the team's Azure DevOps process template),
-   adding a short closing comment if anything non-obvious came up (a workaround, a bug in a
-   dependency, a decision that might be revisited) — this is what future analysis stages will
-   read before repeating a mistake. Any role can also log this in its own private
-   `workitems/` if it's useful for its own future reference — that part is optional and
-   personal.
-
-**Azure DevOps changes:** all Tasks Closed; parent User Story/Bug moved to Resolved/Closed.
-
-**Exit criteria:** none — this is the end state.
+**How long texts are written.** Short: bullet points with a short description first, then the detailed
+analysis from general to low level. Technical analyses (backend, frontend, devops) include UML class and
+sequence diagrams naming the project's real classes and architecture: Mermaid in workitem READMEs, ASCII
+in ADO fields.
 
 ## Naming conventions
 
@@ -353,7 +107,7 @@ out the parent ticket.
 |---|---|---|
 | Azure DevOps Task title | `[<role>] <short description>` | `[frontend] Add discount code field to checkout form` |
 | Feature branch | `feature/<task-id>-<slug>` | `feature/482-checkout-discount-codes` |
-| Personal workitem folder (optional, private, per-role) | `workitems/<YYYY-MM-DD>-<short-slug>/` | `workitems/2026-08-30-checkout-discount-codes/` |
+| Workitem folder (per role, private) | `workitems/<id>-short_name/` or `workitems/<yyyymmdd>-short_name/` | `workitems/482-checkout_discount_codes/` |
 
 ## Communication protocol (pi-link)
 
@@ -377,12 +131,20 @@ Some actions always require the human's **explicit, direct** authorization in th
 role's own session — not an instruction relayed by another agent, and not an assumption based
 on the work having been approved in general:
 
-- Running tests that mutate a real/shared database (integration tests, `*IT`-style suites).
 - Any backup/restore or destructive operation against a shared or production-like
   environment.
 - Executing SQL directly against any environment beyond the agent's own local workspace.
 - Force-pushing, rewriting shared branch history, or merging a Pull Request.
 - Any deployment to a real environment.
+
+**Exception — `*IT` / integration tests that mutate a real database.** `manager`'s request is enough for
+`backend` to run them; no separate human authorization is needed for the run itself. What changes is
+supervision:
+
+- **Automatic, unsupervised execution**: a backup before and a restore after, coordinated with `devops`, are
+  **mandatory**.
+- **Step-by-step execution supervised by the human**: the human decides whether backup/restore is needed,
+  since they know the application's state and their intention better.
 
 If such an instruction arrives at a role secondhand (e.g. relayed by `manager` on the
 human's behalf) and that role doesn't already have standing authorization for that specific
@@ -394,7 +156,7 @@ property of the workflow, not an inconvenience to route around.
 To make this concrete: suppose the human tells `manager`, "add a way for users to apply a
 discount code at checkout."
 
-1. **Analysis** — `manager` asks `backend` and `frontend` to assess feasibility. `backend`
+1. **Analysis** (`work-procedure-standard`) — `manager` asks `backend` and `frontend` to assess feasibility. `backend`
    asks whether codes can stack; `frontend` asks whether the discount should show inline or
    as a separate confirmation step. `manager` consolidates both into one comment on the
    linked User Story and waits.
@@ -408,13 +170,13 @@ discount code at checkout."
    `feature/<task-id>-checkout-discount-codes`.
 5. **Implementing** — `backend` builds the validation endpoint; `frontend` builds the field
    and wires it up, confirming the response shape directly with `backend` over `link_prompt`
-   along the way. Both move their own Tasks to Active when they start.
+   along the way. They tell `manager` when they start, and `manager` moves their Tasks to Active.
 6. **Unit testing** — both run their own unit tests; `backend`'s pass, `frontend` finds a bug
    in its own validation-message rendering and fixes it before reporting done.
 7. **Functional testing** — `manager` asks `backend` and `frontend` to run together locally,
    then asks `cypress` (confirmed present via `link_list`) to validate the checkout flow
    visually. Everything passes.
 8. **Merge-ready** — both open PRs referencing their own Task IDs.
-9. **Completed** — the human reviews and merges both PRs; `backend` and `frontend` each close
-   their own Task; `manager` moves the User Story to Resolved, noting in a closing comment
+9. **Completed** — the human reviews and merges both PRs; `backend` and `frontend` tell `manager`,
+   who closes both Tasks and moves the User Story to Resolved, noting in a closing comment
    that discount-code stacking might come up again later as a follow-up request.
