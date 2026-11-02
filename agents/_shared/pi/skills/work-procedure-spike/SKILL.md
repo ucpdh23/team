@@ -1,6 +1,6 @@
 ---
 name: work-procedure-spike
-description: Work procedure for time-boxed investigations whose deliverable is knowledge, a report with options and a recommendation, not shipped code. Use when an ADO Task header says `Procedure: work-procedure-spike`.
+description: "Work procedure for time-boxed investigations whose deliverable is knowledge, a report with options and a recommendation, not shipped code. Use when an ADO Task header says `Procedure: work-procedure-spike`."
 ---
 
 # Work procedure: spike

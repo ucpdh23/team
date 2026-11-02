@@ -1,6 +1,6 @@
 ---
 name: work-procedure-infra-only
-description: Work procedure for infrastructure-only changes (docker-compose, Dockerfiles, CI/CD pipelines, environments, observability) that devops carries out without backend, frontend or cypress work. Use when an ADO Task header says `Procedure: work-procedure-infra-only`.
+description: "Work procedure for infrastructure-only changes (docker-compose, Dockerfiles, CI/CD pipelines, environments, observability) that devops carries out without backend, frontend or cypress work. Use when an ADO Task header says `Procedure: work-procedure-infra-only`."
 ---
 
 # Work procedure: infra-only

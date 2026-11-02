@@ -1,6 +1,6 @@
 ---
 name: work-procedure-minor-fix
-description: Lightweight work procedure for minor bug fixes with no design impact, such as a wrong literal or label, an icon, a style tweak, a typo in code. Use when an ADO Task header says `Procedure: work-procedure-minor-fix`.
+description: "Lightweight work procedure for minor bug fixes with no design impact, such as a wrong literal or label, an icon, a style tweak, a typo in code. Use when an ADO Task header says `Procedure: work-procedure-minor-fix`."
 ---
 
 # Work procedure: minor fix

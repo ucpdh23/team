@@ -1,6 +1,6 @@
 ---
 name: work-procedure-hotfix
-description: Work procedure for urgent fixes to a defect in production or one that blocks the team, with a short analysis, targeted tests and a post-fix report. Use when an ADO Task header says `Procedure: work-procedure-hotfix`.
+description: "Work procedure for urgent fixes to a defect in production or one that blocks the team, with a short analysis, targeted tests and a post-fix report. Use when an ADO Task header says `Procedure: work-procedure-hotfix`."
 ---
 
 # Work procedure: hotfix

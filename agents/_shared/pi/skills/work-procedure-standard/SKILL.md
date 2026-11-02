@@ -1,6 +1,6 @@
 ---
 name: work-procedure-standard
-description: Default team work procedure, 8 stages from analysis to completed, for any non-trivial feature, bug fix or refactor. Use when an ADO Task header says `Procedure: work-procedure-standard`, or says nothing about a procedure.
+description: "Default team work procedure, 8 stages from analysis to completed, for any non-trivial feature, bug fix or refactor. Use when an ADO Task header says `Procedure: work-procedure-standard`, or says nothing about a procedure."
 ---
 
 # Work procedure: standard
